@@ -1,0 +1,30 @@
+RUN: v003_20251218_221330
+Windows evaluated: 1768
+
+==============================================================================
+ПО ВЫСОТЕ ВОЛНЫ (Wave.Highest)
+==============================================================================
+moderate (0.5-1.5 м)         MAE=  0.8442  RMSE=  1.8868  (n=40 окон)
+    per-target MAE: Pitch=0.0024, Roll=0.0176, Vertical=0.0258, Velocity.Pitching=0.1196, Velocity.Rolling=0.6788
+rough (1.5-2.5 м)            MAE=  0.8153  RMSE=  2.1947  (n=2320 окон)
+    per-target MAE: Pitch=0.0018, Roll=0.0254, Vertical=0.0309, Velocity.Pitching=0.0765, Velocity.Rolling=0.6808
+severe (>2.5 м)              MAE=  7.2169  RMSE= 21.5514  (n=15320 окон)
+    per-target MAE: Pitch=0.0279, Roll=0.1731, Vertical=0.0740, Velocity.Pitching=1.0971, Velocity.Rolling=5.8448
+
+==============================================================================
+ПО УГЛУ ВСТРЕЧИ ВОЛНЫ (относительный курс)
+==============================================================================
+beam (60-120°)               MAE=  6.9082  RMSE= 22.4665  (n=9020 окон)
+    per-target MAE: Pitch=0.0170, Roll=0.1734, Vertical=0.0677, Velocity.Pitching=0.6562, Velocity.Rolling=5.9939
+following (<30°)             MAE=  5.3884  RMSE= 17.7712  (n=850 окон)
+    per-target MAE: Pitch=0.0277, Roll=0.1172, Vertical=0.0644, Velocity.Pitching=1.0540, Velocity.Rolling=4.1251
+head (>150°)                 MAE=  7.0289  RMSE= 18.6096  (n=2220 окон)
+    per-target MAE: Pitch=0.0435, Roll=0.1628, Vertical=0.0771, Velocity.Pitching=1.7526, Velocity.Rolling=4.9929
+quartering (120-150°)        MAE=  6.8816  RMSE= 18.9380  (n=3220 окон)
+    per-target MAE: Pitch=0.0382, Roll=0.1586, Vertical=0.0772, Velocity.Pitching=1.5039, Velocity.Rolling=5.1036
+quartering (30-60°)          MAE=  3.3049  RMSE= 12.6950  (n=2370 окон)
+    per-target MAE: Pitch=0.0147, Roll=0.0740, Vertical=0.0511, Velocity.Pitching=0.6081, Velocity.Rolling=2.5569
+
+==============================================================================
+ОБЩЕЕ
+==============================================================================

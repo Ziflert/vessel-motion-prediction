@@ -31,6 +31,17 @@ MODELS_DIR = Path('models_archive')
 REGISTRY_FILE = 'experiments.csv'
 MANIFEST_FILE = 'manifest.json'
 
+
+def _force_utf8_stdio():
+    """Windows-консоли часто нужен явный UTF-8 (иначе падает печать R²/эмодзи)."""
+    import sys as _sys
+    for stream in (_sys.stdout, _sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(encoding='utf-8', errors='replace')
+            except Exception:
+                pass
+
 REGISTRY_COLUMNS = [
     'run_id', 'created_at', 'status', 'profile', 'n_targets', 'targets',
     'seq_len', 'horizon', 'params', 'best_val_loss',
@@ -191,6 +202,104 @@ def resolve_run(ref: str, models_dir: Path = MODELS_DIR) -> Path:
         raise FileNotFoundError(f'No legacy model with number {ref}')
 
     raise FileNotFoundError(f'Run {ref!r} not found')
+
+
+def delete_run(ref: str, models_dir: Path = MODELS_DIR) -> Path:
+    """Удаляет папку запуска и его строку из реестра (по run_id/префиксу/legacy-номеру)."""
+    import shutil
+    run_dir = resolve_run(ref, models_dir)
+    run_id = run_dir.name
+    shutil.rmtree(run_dir)
+    rebuild_registry(models_dir)
+    return run_dir
+
+
+def rebuild_registry(models_dir: Path = MODELS_DIR):
+    """Пересобирает experiments.csv из manifest.json всех папок (CSV — производная от manifests)."""
+    rows = []
+    for run in list_runs(models_dir):
+        m = run['manifest']
+        if m is None:
+            continue
+        results = m.get('results', {})
+        scaled = results.get('scaled_test', {})
+        phys = results.get('physical', {}).get('overall', {})
+        skill = results.get('skill_vs_persistence', {}).get('overall')
+        feats = m.get('features', {})
+        model = m.get('model', {})
+        rows.append({
+            'run_id': m.get('run_id', run['run_id']),
+            'created_at': m.get('created_at', ''),
+            'status': m.get('status', ''),
+            'profile': feats.get('profile', ''),
+            'n_targets': len(feats.get('targets', [])),
+            'targets': ';'.join(feats.get('targets', [])),
+            'seq_len': model.get('sequence_length', ''),
+            'horizon': model.get('prediction_horizon', ''),
+            'params': results.get('model', {}).get('total_parameters', ''),
+            'best_val_loss': results.get('best_val_loss', ''),
+            'test_mae_phys': f"{phys['mae']:.4f}" if phys.get('mae') is not None else '',
+            'test_r2_phys': f"{phys['r2']:.4f}" if phys.get('r2') is not None else '',
+            'test_r2_scaled': f"{scaled['r2']:.4f}" if scaled.get('r2') is not None else '',
+            'skill_vs_persistence': f"{skill:.3f}" if isinstance(skill, (int, float)) else '',
+            'data_rows': m.get('data', {}).get('rows_total', ''),
+            'notes': m.get('hypothesis', '') or m.get('legacy', {}).get('internal_version_name', ''),
+            'path': str(run['dir']),
+        })
+    rows.sort(key=lambda r: r['run_id'])
+    path = registry_path(models_dir)
+    with open(path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=REGISTRY_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return rows
+
+
+def load_trained_model(run_dir: Path, map_location: str = 'cpu'):
+    """
+    Универсальный загрузчик обученной модели по папке запуска.
+
+    Returns:
+        (model, config, feature_scaler, target_scaler, manifest)
+        model — в режиме eval на CPU (или указанном устройстве).
+    """
+    import pickle
+    import numpy as np
+    import torch
+    from sklearn.preprocessing import StandardScaler
+
+    from models.vessel_predictor import VesselPredictor
+
+    run_dir = Path(run_dir)
+    manifest = load_manifest(run_dir)
+    if manifest is None:
+        raise FileNotFoundError(f'manifest.json not found in {run_dir} '
+                                '(запустите scripts/migrate_models_archive.py для legacy-папок)')
+
+    config = config_from_manifest(manifest)
+
+    # Скалеры: цели — из manifest (mean/std), признаки — из pickle
+    scalers_path = run_dir / 'checkpoints' / 'scalers.pkl'
+    with open(scalers_path, 'rb') as f:
+        scalers = pickle.load(f)
+
+    ts_params = manifest.get('scalers', {})
+    target_scaler = scalers['targets']
+    if ts_params.get('target_mean'):
+        target_scaler = StandardScaler()
+        target_scaler.mean_ = np.asarray(ts_params['target_mean'], dtype=np.float64)
+        target_scaler.scale_ = np.asarray(ts_params['target_std'], dtype=np.float64)
+        target_scaler.var_ = target_scaler.scale_ ** 2
+        target_scaler.n_features_in_ = len(target_scaler.mean_)
+
+    checkpoint = torch.load(run_dir / 'checkpoints' / 'best_model.pt',
+                            map_location=map_location, weights_only=False)
+    model = VesselPredictor(input_dim=config.input_dim,
+                            output_dim=config.output_dim, config=config)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+
+    return model, config, scalers['features'], target_scaler, manifest
 
 
 def config_from_manifest(manifest: Dict):

@@ -102,5 +102,6 @@
     },
     "note": "Метрики — в СТАНДАРТИЗОВАННОМ пространстве (см. PROJECT_OVERVIEW.md). Физические метрики — в results/inference_*/summary_statistics.txt."
   },
-  "updated_at": "migrated"
+  "updated_at": "migrated",
+  "compatibility": "Checkpoint сохранён архитектурой ДО внедрения bridge-слоёв (bridge_h/bridge_c) — не загружается текущим VesselPredictor. Только архивная ценность."
 }

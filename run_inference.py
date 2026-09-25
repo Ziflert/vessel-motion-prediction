@@ -237,6 +237,33 @@ class VesselPredictor_Inference:
         print(f"\n  ⏱ Sequence length: {self.config.sequence_length} steps")
         print(f"  ⏱ Prediction horizon: {self.config.prediction_horizon} steps")
 
+    def predict_uncertain(self, input_data: np.ndarray, mc_samples: int = 30) -> dict:
+        """
+        MC-Dropout: включает dropout и усредняет N стохастических прогонов.
+
+        Returns:
+            {'mean': [horizon, n_targets], 'std': [horizon, n_targets]} —
+            средний прогноз и его неопределённость (физические единицы).
+        """
+        if input_data.shape[0] != self.config.sequence_length:
+            raise ValueError(f'Input sequence length must be {self.config.sequence_length}')
+
+        input_scaled = self.feature_scaler.transform(input_data)
+        x = torch.FloatTensor(input_scaled).unsqueeze(0).to(self.device)
+
+        self.model.train()  # активирует dropout (batchnorm в модели нет)
+        samples = []
+        with torch.no_grad():
+            for _ in range(mc_samples):
+                pred = self.model(x, target=None, teacher_forcing_ratio=0.0)
+                samples.append(pred.cpu().numpy()[0])
+        self.model.eval()
+
+        samples = np.stack(samples)  # [N, horizon, n_targets]
+        mean = self.target_scaler.inverse_transform(samples.mean(axis=0))
+        std = samples.std(axis=0) * self.target_scaler.scale_[None, :]
+        return {'mean': mean, 'std': std}
+
     def predict(self, input_data: np.ndarray) -> np.ndarray:
         """
         Делает предсказание для одной последовательности
@@ -620,6 +647,8 @@ def main():
     parser.add_argument('--model-path', type=str, help='Direct path to model directory')
     parser.add_argument('--data-path', type=str, default="./data/raw/your_data.csv",
                         help='Path to data file')
+    parser.add_argument('--mc-samples', type=int, default=0,
+                        help='>0: включить MC-Dropout с указанным числом прогонов (неопределённость прогноза)')
     args = parser.parse_args()
 
     print("=" * 70)
@@ -729,6 +758,9 @@ def main():
         new_sequence_length=params['sequence_length'],
         new_prediction_horizon=params['prediction_horizon']
     )
+    predictor.mc_samples = args.mc_samples
+    if args.mc_samples > 0:
+        print(f"  ⚡ MC-Dropout включён: {args.mc_samples} прогонов (неопределённость прогноза)")
 
     # 7. Создаем уникальную папку для результатов
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -820,6 +852,11 @@ def main():
                 for j, col in enumerate(predictor.config.target_columns):
                     row[f'actual_{col}'] = result['actual'][t, j]
                     row[f'error_{col}'] = result['predictions'][t, j] - result['actual'][t, j]
+
+            # Неопределённость (MC-Dropout)
+            if 'pred_std' in result:
+                for j, col in enumerate(predictor.config.target_columns):
+                    row[f'std_{col}'] = result['pred_std'][t, j]
 
             results_data.append(row)
 

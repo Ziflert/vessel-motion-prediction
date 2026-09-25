@@ -52,6 +52,7 @@ def split_segments(df: pd.DataFrame, chunk_size: int = 1000,
     """
     num_chunks = len(df) // chunk_size
     train_segments, val_segments, test_segments = [], [], []
+    test_row_ranges = []  # (start, end) в исходном df — для честной оценки на test
 
     for i in range(num_chunks + 1):
         start_idx = i * chunk_size
@@ -70,8 +71,9 @@ def split_segments(df: pd.DataFrame, chunk_size: int = 1000,
         train_segments.append(chunk.iloc[:n_train])
         val_segments.append(chunk.iloc[n_train:n_val])
         test_segments.append(chunk.iloc[n_val:])
+        test_row_ranges.append((int(start_idx + n_val), int(end_idx)))
 
-    return train_segments, val_segments, test_segments
+    return train_segments, val_segments, test_segments, test_row_ranges
 
 
 # ============================================================================
@@ -97,12 +99,22 @@ def main():
     parser.add_argument('--data-path', type=str, default='./data/raw/your_data.csv')
     parser.add_argument('--notes', type=str, default='',
                         help='Гипотеза/описание эксперимента (попадёт в manifest и реестр)')
+    parser.add_argument('--max-epochs', type=int, default=None,
+                        help='Переопределить число эпох (быстрые проверки пайплайна)')
+    parser.add_argument('--data-limit', type=int, default=None,
+                        help='Взять только первые N строк данных (быстрые проверки)')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Переопределить seed (мультисид-эксперименты)')
     args = parser.parse_args()
 
     start_time = time.time()
 
     # 1. Конфигурация + воспроизводимость
     config = Config()
+    if args.seed is not None:
+        config.seed = args.seed
+    if args.max_epochs is not None:
+        config.num_epochs = args.max_epochs
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     random.seed(config.seed)
@@ -147,6 +159,10 @@ def main():
     df = load_data(data_path)
     print(f"  Loaded {len(df)} rows, {len(df.columns)} columns from {data_path.name}")
 
+    if args.data_limit is not None:
+        df = df.iloc[:args.data_limit].reset_index(drop=True)
+        print(f"  ⚡ QUICK TEST: data limited to first {len(df)} rows")
+
     if config.feature_engineering:
         df = engineer_features_dataframe(
             df,
@@ -158,7 +174,7 @@ def main():
 
     # 4. Сплит на НЕПРЕРЫВНЫЕ сегменты (без утечки между выборками)
     print("\nPerforming Mixed Weather Split (chunked segments, no window leakage)...")
-    train_segments, val_segments, test_segments = split_segments(df)
+    train_segments, val_segments, test_segments, test_row_ranges = split_segments(df)
     n_train = sum(len(s) for s in train_segments)
     n_val = sum(len(s) for s in val_segments)
     n_test = sum(len(s) for s in test_segments)
@@ -175,6 +191,7 @@ def main():
         'n_segments_train': len(train_segments),
         'n_segments_val': len(val_segments),
         'n_segments_test': len(test_segments),
+        'test_row_ranges': test_row_ranges,
         'split': {'scheme': 'chunked_segments', 'chunk_size': 1000,
                   'train_frac': 0.7, 'val_frac': 0.15, 'seed': config.seed},
     }
@@ -213,6 +230,7 @@ def main():
         'teacher_forcing_ratio': 0.5,
         'seed': config.seed,
         'device': str(device),
+        'quick_test': bool(args.data_limit or args.max_epochs),
     }
     reg.write_manifest(run_dir, manifest)
 
