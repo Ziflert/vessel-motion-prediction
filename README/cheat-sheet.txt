@@ -1,0 +1,184 @@
+# 🚢 Vessel Motion Prediction - Шпаргалка
+
+## 🎯 Профили предсказания
+
+| Команда | Что предсказывает | Целей |
+|---------|-------------------|-------|
+| `python config/switch_config.py profile motion` | 🌊 Качка (Pitch, Roll, Vertical + velocities) | 6 |
+| `python config/switch_config.py profile rot` | ↩️ Поворот (ROT на основе руля) | 1 |
+| `python config/switch_config.py profile speed` | ⚡ Скорость (SOG) | 1 |
+| `python config/switch_config.py profile full` | 🎯 Всё вместе | 8 |
+
+## ⚡ Режимы скорости
+
+| Команда | Время | Качество |
+|---------|-------|----------|
+| `python config/switch_config.py speed fast` | ~1 час | ⭐⭐⭐ |
+| `python config/switch_config.py speed balanced` | ~2-3 часа | ⭐⭐⭐⭐ |
+| `python config/switch_config.py speed quality` | ~6-8 часов | ⭐⭐⭐⭐⭐ |
+
+## 📋 Основные команды
+
+```bash
+# Посмотреть текущую конфигурацию
+python config/switch_config.py
+
+# Показать все профили и режимы
+python config/switch_config.py list
+
+# Запустить обучение
+python run_training.py
+
+# Запустить inference
+python run_inference.py --model-version 1
+```
+
+## 🔥 Быстрые сценарии
+
+### Сценарий 1: Эксперимент с качкой (1 час)
+```bash
+python config/switch_config.py profile motion
+python config/switch_config.py speed fast
+python run_training.py
+```
+
+### Сценарий 2: Production модель ROT (2-3 часа)
+```bash
+python config/switch_config.py profile rot
+python config/switch_config.py speed balanced
+python run_training.py
+```
+
+### Сценарий 3: Лучшая модель для всего (6-8 часов)
+```bash
+python config/switch_config.py profile full
+python config/switch_config.py speed quality
+python run_training.py
+```
+
+## 📊 Веса целевых переменных (в config/config.py)
+
+### По умолчанию для profile="full":
+```python
+'Roll(градусы)': 2.0,      # ← Крен ВАЖНЕЕ (самое опасное)
+'Pitch(градусы)': 1.0,
+'Vertical(Метр)': 1.5,
+'ROT(°/мин)': 1.5,
+'SOG(узлы)': 1.0,
+# ... остальные
+```
+
+### Как изменить веса:
+1. Открыть `config/config.py`
+2. Найти `Config.get_profile_config()`
+3. Изменить значения в секции `'weights'`
+4. Перезапустить обучение
+
+## 🎛️ Основные параметры (config/config.py)
+
+```python
+# Временные параметры
+sequence_length: int = 150        # История (в шагах)
+prediction_horizon: int = 20      # Предсказание вперёд
+
+# Архитектура
+temporal_hidden_size: int = 128   # Размер LSTM
+temporal_num_layers: int = 2      # Количество слоёв
+
+# Обучение
+batch_size: int = 32
+learning_rate: float = 0.0005
+num_epochs: int = 150
+```
+
+## 🔍 Структура результатов
+
+После обучения в `models_archive/v001_TIMESTAMP/`:
+
+```
+v001_20241219_143052/
+├── checkpoints/
+│   ├── best_model.pt       ← Лучшая модель
+│   └── scalers.pkl         ← Нормализация данных
+├── logs/
+├── training_config.json    ← Полная конфигурация
+├── training_summary.txt    ← Итоги (читаемый формат)
+├── training_metrics.json   ← Метрики (для парсинга)
+└── README.txt              ← Как использовать эту версию
+```
+
+## 💡 Советы
+
+### Если модель обучается долго:
+```bash
+python config/switch_config.py speed fast
+# или в config.py:
+sequence_length: int = 100  # уменьшить
+temporal_hidden_size: int = 64  # упростить
+```
+
+### Если качество низкое:
+```bash
+python config/switch_config.py speed quality
+# или в config.py:
+temporal_hidden_size: int = 256  # увеличить
+temporal_num_layers: int = 3  # добавить слоёв
+```
+
+### Если переобучение (val loss растёт):
+```python
+# В config.py:
+encoder_dropout: float = 0.2  # увеличить (было 0.15)
+temporal_dropout: float = 0.15  # увеличить (было 0.1)
+```
+
+## 📈 Мониторинг обучения
+
+### Хорошие признаки:
+- ✅ Val loss медленно снижается
+- ✅ R² > 0.85 на тесте
+- ✅ MAE стабилизируется
+- ✅ "Top worst variables" меняются со временем
+
+### Плохие признаки:
+- ❌ Val loss растёт (переобучение)
+- ❌ Train loss не падает (слабая модель)
+- ❌ R² < 0.5 (модель не учится)
+- ❌ Одна переменная всегда худшая (плохие признаки)
+
+## 🚨 Troubleshooting
+
+| Проблема | Решение |
+|----------|---------|
+| `CUDA out of memory` | Уменьшить `batch_size` |
+| Слишком долго | Режим `fast` или уменьшить `sequence_length` |
+| Низкое качество ROT | Увеличить вес `'ROT(°/мин)': 3.0` |
+| Низкое качество Roll | Увеличить вес `'Roll(градусы)': 5.0` |
+| Переобучение | Увеличить `dropout` до 0.2-0.25 |
+
+## 📞 Команды для проверки
+
+```bash
+# Текущая конфигурация
+python config/switch_config.py
+
+# Все опции
+python config/switch_config.py list
+
+# Версия модели
+ls models_archive/
+
+# Проверить данные
+python scripts/check_data.py
+```
+
+---
+
+**Готово к работе! 🚀**
+
+Начните с:
+```bash
+python config/switch_config.py profile full
+python config/switch_config.py speed fast
+python run_training.py
+```

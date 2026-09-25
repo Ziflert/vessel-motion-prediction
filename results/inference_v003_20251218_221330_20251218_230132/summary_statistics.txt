@@ -1,0 +1,15 @@
+======================================================================
+SUMMARY STATISTICS
+======================================================================
+
+Average MAE:  6.6618 ± 3.8989
+Average RMSE: 16.0695 ± 9.5074
+Best MAE:     0.4420 (at index 2105)
+Worst MAE:    11.4419 (at index 6255)
+
+Per-target statistics:
+  Pitch(градусы): MAE = 0.0719 ± 0.0710
+  Roll(градусы): MAE = 0.8279 ± 0.6012
+  Vertical(Метр): MAE = 0.4011 ± 0.2511
+  Velocity.Pitching(°/мин): MAE = 2.6505 ± 2.7286
+  Velocity.Rolling(°/мин): MAE = 29.3575 ± 17.8397

@@ -1,0 +1,106 @@
+{
+  "run_id": "v003_20251218_221330",
+  "created_at": "2025-12-18 22:13:30",
+  "status": "archived",
+  "hypothesis": "Legacy-модель. Внутр. имя v007 — ЛУЧШАЯ по R2 (scaled). horizon=10. Папка была переименована вручную из v007 в v003.",
+  "git_commit": null,
+  "legacy": {
+    "internal_version_name": "v007 (best, R2=0.62 scaled)",
+    "original_version_number": 7,
+    "migrated": true
+  },
+  "data": {
+    "rows_total": 12499,
+    "rows_train": 8749,
+    "rows_val": 1875,
+    "rows_test": 1875,
+    "split": {
+      "scheme": "chunked_concatenated (legacy, windows could cross chunk borders)"
+    },
+    "path": "data/raw/your_data.csv",
+    "sha256": null
+  },
+  "model": {
+    "type": "lstm",
+    "sequence_length": 120,
+    "prediction_horizon": 10,
+    "encoder_hidden_dims": [
+      64
+    ],
+    "temporal_hidden_size": 64,
+    "temporal_num_layers": 1,
+    "decoder_hidden_dim": 64,
+    "bidirectional": false,
+    "use_attention": true
+  },
+  "training": {
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "num_epochs": 100,
+    "early_stopping_patience": 20,
+    "max_grad_norm": 1.0
+  },
+  "features": {
+    "profile": "legacy (5-target motion-like)",
+    "input": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "Velocity.Yawing(°/мин)",
+      "Swell(метры)",
+      "Wave.Highest(метры)",
+      "Wave.direction(градусы)",
+      "Wind.direction(градусы)",
+      "Wave.speed(узлы)",
+      "Current.speed(узлы)",
+      "Rudder Order(градусы)",
+      "Rudder State(градусы)",
+      "RPM(Обороты в минуту)",
+      "SOG(узлы)"
+    ],
+    "targets": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)"
+    ],
+    "target_weights": {
+      "Pitch(градусы)": 1.0,
+      "Roll(градусы)": 2.0,
+      "Vertical(Метр)": 1.5,
+      "Velocity.Pitching(°/мин)": 0.8,
+      "Velocity.Rolling(°/мин)": 1.2
+    },
+    "target_weights_source": "reconstructed_from_legacy_motion_profile",
+    "feature_engineering": null,
+    "input_dim": 17,
+    "output_dim": 5
+  },
+  "scalers": {
+    "type": "StandardScaler",
+    "file": "checkpoints/scalers.pkl",
+    "note": "mean/std not extracted during migration (no torch env); target params will be taken from pickle at inference"
+  },
+  "results": {
+    "total_epochs": 36,
+    "training_time_seconds": 95.29456520080566,
+    "best_val_loss": 0.5508315855820131,
+    "scaled_test": {
+      "loss": 0.49026073665092035,
+      "mae": 0.3725147247314453,
+      "rmse": 0.6096206307411194,
+      "r2": 0.6208432912826538
+    },
+    "model": {
+      "total_parameters": 85957,
+      "trainable_parameters": 85957
+    },
+    "note": "Метрики — в СТАНДАРТИЗОВАННОМ пространстве (см. PROJECT_OVERVIEW.md). Физические метрики — в results/inference_*/summary_statistics.txt."
+  },
+  "updated_at": "migrated"
+}

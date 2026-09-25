@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Снимки-архивы (дублируют содержимое репозитория)
+*.rar
+*.zip
+*.7z
+
+# Временные файлы
+*.log
+.DS_Store
+Thumbs.db
+
+# Логи обучения (чекпоинты и метрики в models_archive/ входят в репозиторий)
+logs/
+
+# Устаревшая полная копия проекта (!version_1): в репозиторий идут только
+# её исходники (историческая ценность), тяжёлые дубли данных/моделей — нет
+!version_1/data/
+!version_1/models_archive/
+!version_1/results/
+!version_1/__pycache__/
+
+# --- экранированные правила для папки с именем, начинающимся с "!" ---
+\!version_1/data/
+\!version_1/models_archive/
+\!version_1/results/
+\!version_1/__pycache__/

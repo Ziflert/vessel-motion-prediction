@@ -1,0 +1,63 @@
+{
+  "version": 3,
+  "timestamp": "20251218_171905",
+  "datetime": "2025-12-18 17:19:05",
+  "data": {
+    "total_rows": 12499,
+    "train_rows": 8749,
+    "val_rows": 1875,
+    "test_rows": 1875,
+    "num_features": 39
+  },
+  "model": {
+    "type": "lstm",
+    "sequence_length": 120,
+    "prediction_horizon": 30,
+    "input_dim": 17,
+    "output_dim": 5,
+    "encoder_hidden_dims": [
+      64
+    ],
+    "temporal_hidden_size": 64,
+    "temporal_num_layers": 1,
+    "decoder_hidden_dim": 64,
+    "bidirectional": false,
+    "use_attention": true
+  },
+  "training": {
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "num_epochs": 100,
+    "early_stopping_patience": 20,
+    "max_grad_norm": 1.0
+  },
+  "features": {
+    "input_features": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "Velocity.Yawing(°/мин)",
+      "Swell(метры)",
+      "Wave.Highest(метры)",
+      "Wave.direction(градусы)",
+      "Wind.direction(градусы)",
+      "Wave.speed(узлы)",
+      "Current.speed(узлы)",
+      "Rudder Order(градусы)",
+      "Rudder State(градусы)",
+      "RPM(Обороты в минуту)",
+      "SOG(узлы)"
+    ],
+    "target_features": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)"
+    ]
+  }
+}

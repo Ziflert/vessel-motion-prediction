@@ -1,0 +1,19 @@
+{
+  "version": "v004_20251218_220910",
+  "timestamp": "2025-12-18T22:10:53.058409",
+  "training": {
+    "total_epochs": 28,
+    "training_time_seconds": 101.09638404846191,
+    "best_validation_loss": 0.7545941821798416
+  },
+  "test_metrics": {
+    "loss": 0.6671283023232328,
+    "mae": 0.4411330819129944,
+    "rmse": 0.7219666242599487,
+    "r2": 0.46722614765167236
+  },
+  "model": {
+    "total_parameters": 85957,
+    "trainable_parameters": 85957
+  }
+}

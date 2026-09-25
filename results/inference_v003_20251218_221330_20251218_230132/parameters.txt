@@ -1,0 +1,18 @@
+======================================================================
+INFERENCE PARAMETERS
+======================================================================
+
+Timestamp: 20251218_230132
+Model version: v003_20251218_221330
+Model path: models_archive\v003_20251218_221330\checkpoints\best_model.pt
+Data path: data\raw\your_data.csv
+Time interval: 1.0 seconds
+History length: 30 steps (0.5 minutes)
+Prediction horizon: 15 steps (15 seconds)
+Number of tests: 5
+Test mode: even
+Test indices: [2105, 4180, 6255, 8330, 10405]
+
+Original model training parameters:
+  Sequence length: 120
+  Prediction horizon: 10

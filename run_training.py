@@ -1,0 +1,432 @@
+import torch
+import pandas as pd
+import numpy as np
+import json
+import pickle
+import random
+import argparse
+import time
+from pathlib import Path
+from datetime import datetime
+
+from config.config import Config
+from data.dataset import create_dataloaders
+from data.features import engineer_features_dataframe
+from models.vessel_predictor import VesselPredictor
+from training.trainer import Trainer
+from training.baselines import evaluate_baselines
+from training.metrics import skill_score
+import registry as reg
+
+
+# ============================================================================
+# Данные
+# ============================================================================
+
+def load_data(data_path: Path) -> pd.DataFrame:
+    """Загрузка данных: TSV/UTF-16 с fallback-ами."""
+    try:
+        df = pd.read_csv(data_path, sep='\t', encoding='utf-16')
+    except Exception:
+        try:
+            df = pd.read_csv(data_path, sep='\t')
+        except Exception:
+            df = pd.read_csv(data_path)
+
+    if 'time' in df.columns:
+        df = df.drop('time', axis=1)
+    return df
+
+
+def split_segments(df: pd.DataFrame, chunk_size: int = 1000,
+                   train_frac: float = 0.7, val_frac: float = 0.15,
+                   min_chunk: int = 100):
+    """
+    Mixed Weather Split (Chunked) — БЕЗ склейки сегментов.
+
+    Возвращает списки НЕПРЕРЫВНЫХ сегментов (train/val/test). Окна
+    последовательностей нарезаются внутри сегментов (см. VesselDataset),
+    поэтому:
+      - нет утечки: окна не пересекают границы между сплитами;
+      - нет «склеенных» окон через временные разрывы между чанками.
+    """
+    num_chunks = len(df) // chunk_size
+    train_segments, val_segments, test_segments = [], [], []
+
+    for i in range(num_chunks + 1):
+        start_idx = i * chunk_size
+        end_idx = min((i + 1) * chunk_size, len(df))
+        if start_idx >= len(df):
+            break
+
+        chunk = df.iloc[start_idx:end_idx]
+        if len(chunk) < min_chunk:
+            train_segments.append(chunk)
+            continue
+
+        n = len(chunk)
+        n_train = int(n * train_frac)
+        n_val = int(n * (train_frac + val_frac))
+        train_segments.append(chunk.iloc[:n_train])
+        val_segments.append(chunk.iloc[n_train:n_val])
+        test_segments.append(chunk.iloc[n_val:])
+
+    return train_segments, val_segments, test_segments
+
+
+# ============================================================================
+# Основной пайплайн
+# ============================================================================
+
+
+
+def _force_utf8_stdio():
+    """Windows-консоли часто нужен явный UTF-8 (иначе падает печать R²/эмодзи)."""
+    import sys as _sys
+    for stream in (_sys.stdout, _sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def main():
+    _force_utf8_stdio()
+    parser = argparse.ArgumentParser(description='Vessel Motion Prediction - Training')
+    parser.add_argument('--data-path', type=str, default='./data/raw/your_data.csv')
+    parser.add_argument('--notes', type=str, default='',
+                        help='Гипотеза/описание эксперимента (попадёт в manifest и реестр)')
+    args = parser.parse_args()
+
+    start_time = time.time()
+
+    # 1. Конфигурация + воспроизводимость
+    config = Config()
+    torch.manual_seed(config.seed)
+    np.random.seed(config.seed)
+    random.seed(config.seed)
+
+    print("=" * 70)
+    print("VESSEL MOTION PREDICTION - Training (registry-based versioning)")
+    print("=" * 70)
+
+    # 2. Создание запуска: run_id + manifest.json (единый источник правды)
+    run_id = reg.new_run_id()
+    manifest = {
+        'run_id': run_id,
+        'created_at': datetime.now().isoformat(timespec='seconds'),
+        'status': 'running',
+        'hypothesis': args.notes,
+        'git_commit': reg.git_commit_hash(),
+        'data': {},
+        'model': {},
+        'training': {},
+        'features': {},
+        'scalers': {},
+        'results': {},
+    }
+    run_dir = reg.create_run(reg.MODELS_DIR, manifest)
+    config.checkpoint_dir = str(run_dir / 'checkpoints')
+    config.log_dir = str(run_dir / 'logs')
+    reg.save_pip_freeze(run_dir)
+
+    print(f"\n📦 Run ID: {run_id}")
+    print(f"   Directory: {run_dir}")
+    if manifest['git_commit']:
+        print(f"   Git commit: {manifest['git_commit'][:10]}")
+
+    device = torch.device(config.device)
+    if device.type == 'cpu':
+        print("\n⚠ CUDA not available, using CPU")
+
+    # 3. Загрузка данных + инженерия признаков (ОДИНАКОВАЯ с inference)
+    print("\n" + "-" * 70)
+    print("Loading data...")
+    data_path = Path(args.data_path)
+    df = load_data(data_path)
+    print(f"  Loaded {len(df)} rows, {len(df.columns)} columns from {data_path.name}")
+
+    if config.feature_engineering:
+        df = engineer_features_dataframe(
+            df,
+            cyclic=config.feature_engineering['cyclic_encoding'],
+            relative_wave_angle=config.feature_engineering['relative_wave_angle'],
+        )
+        print(f"  Feature engineering applied: {config.feature_engineering}")
+        print(f"  Columns after engineering: {len(df.columns)}")
+
+    # 4. Сплит на НЕПРЕРЫВНЫЕ сегменты (без утечки между выборками)
+    print("\nPerforming Mixed Weather Split (chunked segments, no window leakage)...")
+    train_segments, val_segments, test_segments = split_segments(df)
+    n_train = sum(len(s) for s in train_segments)
+    n_val = sum(len(s) for s in val_segments)
+    n_test = sum(len(s) for s in test_segments)
+    print(f"  Segments: train={len(train_segments)}, val={len(val_segments)}, test={len(test_segments)}")
+    print(f"  Rows:     train={n_train}, val={n_val}, test={n_test}")
+
+    manifest['data'] = {
+        'path': str(data_path),
+        'sha256': reg.file_sha256(data_path),
+        'rows_total': int(len(df)),
+        'rows_train': int(n_train),
+        'rows_val': int(n_val),
+        'rows_test': int(n_test),
+        'n_segments_train': len(train_segments),
+        'n_segments_val': len(val_segments),
+        'n_segments_test': len(test_segments),
+        'split': {'scheme': 'chunked_segments', 'chunk_size': 1000,
+                  'train_frac': 0.7, 'val_frac': 0.15, 'seed': config.seed},
+    }
+    manifest['features'] = {
+        'profile': config.profile,
+        'input': list(config.feature_columns),
+        'targets': list(config.target_columns),
+        'target_weights': dict(config.target_weights or {}),
+        'feature_engineering': config.feature_engineering,
+        'input_dim': len(config.feature_columns),
+        'output_dim': len(config.target_columns),
+    }
+    manifest['model'] = {
+        'type': config.model_type,
+        'sequence_length': config.sequence_length,
+        'prediction_horizon': config.prediction_horizon,
+        'prediction_step': config.prediction_step,
+        'encoder_hidden_dims': list(config.encoder_hidden_dims),
+        'encoder_dropout': config.encoder_dropout,
+        'temporal_hidden_size': config.temporal_hidden_size,
+        'temporal_num_layers': config.temporal_num_layers,
+        'temporal_dropout': config.temporal_dropout,
+        'decoder_hidden_dim': config.decoder_hidden_dim,
+        'decoder_dropout': config.decoder_dropout,
+        'bidirectional': config.bidirectional,
+        'use_attention': config.use_attention,
+    }
+    manifest['training'] = {
+        'batch_size': config.batch_size,
+        'learning_rate': config.learning_rate,
+        'weight_decay': config.weight_decay,
+        'num_epochs': config.num_epochs,
+        'early_stopping_patience': config.early_stopping_patience,
+        'max_grad_norm': config.max_grad_norm,
+        'loss_weights': {'mse': 1.0, 'huber': 0.5, 'smoothness': 0.1},
+        'teacher_forcing_ratio': 0.5,
+        'seed': config.seed,
+        'device': str(device),
+    }
+    reg.write_manifest(run_dir, manifest)
+
+    # 5. DataLoader'ы (StandardScaler обучается ТОЛЬКО на train)
+    train_loader, val_loader, test_loader, scalers = create_dataloaders(
+        train_segments, val_segments, test_segments, config
+    )
+
+    # Параметры скалеров дублируем в manifest — inference больше не зависит от pickle
+    ts = scalers['targets']
+    manifest['scalers'] = {
+        'type': 'StandardScaler',
+        'target_mean': ts.mean_.tolist(),
+        'target_std': ts.scale_.tolist(),
+        'target_columns': list(config.target_columns),
+        'feature_scaler_file': 'checkpoints/scalers.pkl',
+    }
+    reg.write_manifest(run_dir, manifest)
+
+    # 6. Модель
+    print("\n" + "-" * 70)
+    print("Creating model...")
+    model = VesselPredictor(
+        input_dim=config.input_dim,
+        output_dim=config.output_dim,
+        config=config
+    ).to(device)
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params:,}")
+
+    # 7. Обучение
+    print("\n" + "-" * 70)
+    trainer = Trainer(
+        model=model,
+        config=config,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        device=device,
+        target_scaler=scalers['targets'],
+    )
+
+    training_start = time.time()
+    trainer.train()
+    training_time = time.time() - training_start
+    total_epochs = len(trainer.train_losses)
+
+    # 8. Тест лучшей модели (масштабированные + ФИЗИЧЕСКИЕ метрики)
+    print("\n" + "-" * 70)
+    print("Testing best model...")
+    trainer.load_checkpoint(str(Path(config.checkpoint_dir) / "best_model.pt"))
+    test_metrics = trainer.evaluate(test_loader)
+
+    phys = test_metrics.get('phys', {})
+    print("\nTest Results (scaled space):")
+    print(f"  Loss: {test_metrics['loss']:.4f}  MAE: {test_metrics['mae']:.4f}  "
+          f"RMSE: {test_metrics['rmse']:.4f}  R²: {test_metrics['r2']:.4f}")
+    if phys:
+        print("\nTest Results (PHYSICAL units):")
+        print(f"  MAE:  {phys['overall']['mae']:.4f}  RMSE: {phys['overall']['rmse']:.4f}  "
+              f"R²: {phys['overall']['r2']:.4f}")
+        print("  Per-target MAE:")
+        for name, m in phys['per_target'].items():
+            print(f"    {name:40s}: {m['mae']:.4f} (R²: {m['r2']:.3f})")
+
+    # 9. Бейзлайны (persistence, линейная экстраполяция) и skill score
+    print("\n" + "-" * 70)
+    print("Baselines (physical units)...")
+    baselines = evaluate_baselines(test_loader, config, scalers['targets'], device=str(device))
+    skill = {}
+    if 'persistence' in baselines and phys:
+        base_mae = baselines['persistence']['overall']['mae']
+        skill = {
+            'overall': skill_score(phys['overall']['mae'], base_mae),
+            'per_target': {
+                name: skill_score(phys['per_target'][name]['mae'],
+                                  baselines['persistence']['per_target'][name]['mae'])
+                for name in phys['per_target']
+            },
+        }
+        print(f"  Persistence MAE: {base_mae:.4f}  ->  Model skill score: {skill['overall']:.3f}")
+        print(f"  Linear extrapolation MAE: {baselines['linear_extrapolation']['overall']['mae']:.4f}")
+        print("  Skill per target (>0 = лучше бейзлайна):")
+        for name, s in skill['per_target'].items():
+            print(f"    {name:40s}: {s:+.3f}")
+    else:
+        print(f"  Skipped: {baselines.get('error', 'unknown reason')}")
+
+    # 10. Сохранение скалеров
+    scalers_path = Path(config.checkpoint_dir) / "scalers.pkl"
+    with open(scalers_path, 'wb') as f:
+        pickle.dump(scalers, f)
+
+    # 11. Legacy training_metrics.json (совместимость с model_manager)
+    metrics_data = {
+        'run_id': run_id,
+        'timestamp': datetime.now().isoformat(),
+        'training': {
+            'total_epochs': total_epochs,
+            'training_time_seconds': training_time,
+            'best_validation_loss': float(trainer.best_val_loss),
+        },
+        'test_metrics': {
+            'loss': float(test_metrics['loss']),
+            'mae': float(test_metrics['mae']),
+            'rmse': float(test_metrics['rmse']),
+            'r2': float(test_metrics['r2']),
+        },
+        'physical': phys,
+        'baselines': baselines,
+        'skill_vs_persistence': skill,
+        'model': {
+            'total_parameters': total_params,
+            'trainable_parameters': sum(p.numel() for p in model.parameters() if p.requires_grad),
+        }
+    }
+    with open(run_dir / "training_metrics.json", 'w', encoding='utf-8') as f:
+        json.dump(metrics_data, f, indent=2, ensure_ascii=False)
+
+    # 12. Финальный manifest + строка в реестре экспериментов
+    reg.update_manifest(run_dir, {
+        'status': 'candidate',
+        'results': {
+            'total_epochs': total_epochs,
+            'training_time_seconds': training_time,
+            'best_val_loss': float(trainer.best_val_loss),
+            'scaled_test': {
+                'loss': float(test_metrics['loss']),
+                'mae': float(test_metrics['mae']),
+                'rmse': float(test_metrics['rmse']),
+                'r2': float(test_metrics['r2']),
+            },
+            'physical': phys,
+            'baselines': baselines,
+            'skill_vs_persistence': skill,
+            'model': metrics_data['model'],
+        },
+    })
+
+    reg.append_registry_row(reg.MODELS_DIR, {
+        'run_id': run_id,
+        'created_at': manifest['created_at'],
+        'status': 'candidate',
+        'profile': config.profile,
+        'n_targets': len(config.target_columns),
+        'targets': ';'.join(config.target_columns),
+        'seq_len': config.sequence_length,
+        'horizon': config.prediction_horizon,
+        'params': total_params,
+        'best_val_loss': f"{trainer.best_val_loss:.6f}",
+        'test_mae_phys': f"{phys['overall']['mae']:.4f}" if phys else '',
+        'test_r2_phys': f"{phys['overall']['r2']:.4f}" if phys else '',
+        'test_r2_scaled': f"{test_metrics['r2']:.4f}",
+        'skill_vs_persistence': f"{skill['overall']:.3f}" if skill else '',
+        'data_rows': int(len(df)),
+        'notes': args.notes,
+        'path': str(run_dir),
+    })
+
+    # 13. Человекочитаемая сводка
+    write_summary(run_dir, run_id, config, trainer, test_metrics, phys,
+                  baselines, skill, training_time, total_epochs, total_params)
+
+    total_time = time.time() - start_time
+    print("\n" + "=" * 70)
+    print("TRAINING COMPLETED!")
+    print("=" * 70)
+    print(f"\n📦 Run: {run_id}")
+    print(f"⏱  Total time: {total_time / 60:.1f} minutes")
+    print(f"🚀 Inference:  python run_inference.py --run-id {run_id}")
+    print(f"📋 Promote:    поменяйте status на 'production' в manifest.json")
+    print("=" * 70)
+
+
+def write_summary(run_dir, run_id, config, trainer, test_metrics, phys,
+                  baselines, skill, training_time, total_epochs, total_params):
+    lines = [
+        "=" * 70, "TRAINING SUMMARY", "=" * 70, "",
+        f"Run ID: {run_id}",
+        f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Profile: {config.profile}",
+        f"Training time: {training_time:.1f} s ({training_time / 60:.1f} min)",
+        f"Total epochs: {total_epochs}",
+        f"Device: {trainer.device}",
+        f"Total parameters: {total_params:,}", "",
+        "-" * 70, "RESULTS (scaled space)", "-" * 70,
+        f"Best validation loss: {trainer.best_val_loss:.6f}",
+        f"Test loss: {test_metrics['loss']:.6f}  MAE: {test_metrics['mae']:.6f}  "
+        f"RMSE: {test_metrics['rmse']:.6f}  R2: {test_metrics['r2']:.6f}", "",
+    ]
+    if phys:
+        lines += ["-" * 70, "RESULTS (PHYSICAL units)", "-" * 70,
+                  f"MAE:  {phys['overall']['mae']:.4f}",
+                  f"RMSE: {phys['overall']['rmse']:.4f}",
+                  f"R2:   {phys['overall']['r2']:.4f}", "",
+                  "Per-target:"]
+        for name, m in phys['per_target'].items():
+            lines.append(f"  {name:40s}: MAE={m['mae']:.4f}  RMSE={m['rmse']:.4f}  R2={m['r2']:.3f}")
+        lines.append("")
+        lines.append("MAE by lead time (per horizon step):")
+        lines.append("  " + "  ".join(f"{v:.3f}" for v in phys['per_horizon_mae']))
+        lines.append("")
+    if 'persistence' in baselines:
+        lines += ["-" * 70, "BASELINES (physical units)", "-" * 70,
+                  f"Persistence MAE:          {baselines['persistence']['overall']['mae']:.4f}",
+                  f"Linear extrapolation MAE: {baselines['linear_extrapolation']['overall']['mae']:.4f}",
+                  f"Skill vs persistence:     {skill.get('overall', float('nan')):+.3f} "
+                  "(>0 = model beats baseline)", ""]
+    lines += ["=" * 70, "Training completed successfully!", "=" * 70]
+
+    with open(Path(run_dir) / "training_summary.txt", 'w', encoding='utf-8') as f:
+        f.write("\n".join(lines))
+    print(f"\n✓ Summary saved to {Path(run_dir).name}/training_summary.txt")
+
+
+if __name__ == "__main__":
+    main()

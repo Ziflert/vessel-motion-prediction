@@ -1,0 +1,25 @@
+======================================================================
+INFERENCE PARAMETERS
+======================================================================
+
+Timestamp: 20251219_121624
+Model version: v004_20251219_120419
+Model profile: full_prediction
+Model path: models_archive\v004_20251219_120419\checkpoints\best_model.pt
+Data path: data\raw\your_data.csv
+Time interval: 1.0 seconds
+History length: 60 steps (1.0 minutes)
+Prediction horizon: 15 steps (15 seconds)
+Number of tests: 5
+Test mode: even
+Test indices: [2130, 4200, 6270, 8340, 10410]
+
+Target variables (8):
+  • Pitch(градусы) (weight: 1.0x)
+  • Roll(градусы) (weight: 2.0x)
+  • Vertical(Метр) (weight: 1.5x)
+  • Velocity.Pitching(°/мин) (weight: 0.8x)
+  • Velocity.Rolling(°/мин) (weight: 1.2x)
+  • Velocity.Vertical(узлы) (weight: 0.8x)
+  • ROT(°/мин) (weight: 1.5x)
+  • SOG(узлы) (weight: 1.0x)

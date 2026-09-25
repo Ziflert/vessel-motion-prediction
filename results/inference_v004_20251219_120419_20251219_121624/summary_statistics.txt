@@ -1,0 +1,21 @@
+======================================================================
+SUMMARY STATISTICS
+======================================================================
+
+Model Profile: full_prediction
+
+Overall Performance:
+  Average MAE:  4.9655 ± 2.5883
+  Average RMSE: 14.0134 ± 7.6322
+  Best MAE:     0.6400 (at index 2130)
+  Worst MAE:    7.7855 (at index 8340)
+
+Per-Target Statistics:
+  Pitch(градусы)                          : MAE = 0.0850 ± 0.0516 (weight: 1.0x)
+  Roll(градусы)                           : MAE = 1.0201 ± 0.5934 (weight: 2.0x)
+  Vertical(Метр)                          : MAE = 0.3814 ± 0.2100 (weight: 1.5x)
+  Velocity.Pitching(°/мин)                : MAE = 3.2789 ± 1.9630 (weight: 0.8x)
+  Velocity.Rolling(°/мин)                 : MAE = 33.0346 ± 19.1274 (weight: 1.2x)
+  Velocity.Vertical(узлы)                 : MAE = 0.6001 ± 0.3491 (weight: 0.8x)
+  ROT(°/мин)                              : MAE = 1.2377 ± 0.5733 (weight: 1.5x)
+  SOG(узлы)                               : MAE = 0.0865 ± 0.0549 (weight: 1.0x)

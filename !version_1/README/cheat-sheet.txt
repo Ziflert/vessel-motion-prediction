@@ -1,0 +1,277 @@
+# 🚀 Быстрая справка - Система версионирования
+
+## 📦 Основные команды
+
+### Обучение
+```bash
+python run_training.py
+# Создает новую версию модели (v001, v002, v003, ...)
+```
+
+### Просмотр моделей
+```bash
+python model_manager.py list
+# Показывает таблицу всех моделей с метриками
+```
+
+### Использование модели
+```bash
+# Интерактивный выбор (рекомендуется)
+python run_inference.py
+
+# Указать версию
+python run_inference.py --model-version 3
+
+# Указать путь
+python run_inference.py --model-path ./models_archive/v003_...
+```
+
+---
+
+## 🔍 Управление моделями
+
+```bash
+# Информация о модели
+python model_manager.py info --version v003_20241218_163045
+
+# Сравнить две модели
+python model_manager.py compare --version v001_... --version2 v003_...
+
+# Найти лучшую модель
+python model_manager.py best --metric mae
+python model_manager.py best --metric rmse
+python model_manager.py best --metric r2
+
+# Экспортировать модель
+python model_manager.py export --version v003_... --output ./my_model
+
+# Удалить модель
+python model_manager.py delete --version v001_...
+```
+
+---
+
+## 📁 Структура папок
+
+```
+models_archive/
+├── v001_20241218_143052/
+│   ├── checkpoints/
+│   │   ├── best_model.pt          ← Модель
+│   │   └── scalers.pkl            ← Скалеры
+│   ├── training_config.json       ← Конфиг
+│   ├── training_metrics.json      ← Метрики (JSON)
+│   ├── training_summary.txt       ← Отчет
+│   └── README.txt                 ← Краткая инфо
+├── v002_20241218_150321/
+└── v003_20241218_163045/
+
+results/
+├── inference_v001_..._20241218_170000/
+├── inference_v002_..._20241218_171500/
+└── inference_v003_..._20241218_173000/
+```
+
+---
+
+## 🎯 Типичные сценарии
+
+### Сценарий 1: Первое обучение
+```bash
+python run_training.py          # v001 создана
+python model_manager.py list    # Проверить результаты
+python run_inference.py         # Выбрать v001, Enter
+```
+
+### Сценарий 2: Улучшение модели
+```bash
+# Измените config.py (например, dropout=0.2)
+python run_training.py          # v002 создана
+python model_manager.py compare --version v001_... --version2 v002_...
+python model_manager.py best    # Найти лучшую
+```
+
+### Сценарий 3: Эксперименты
+```bash
+# Эксперимент 1
+python run_training.py          # v003: attention=True
+
+# Эксперимент 2
+python run_training.py          # v004: attention=False, layers=2
+
+# Эксперимент 3
+python run_training.py          # v005: bidirectional=True
+
+python model_manager.py list    # Сравнить все
+python model_manager.py best --metric r2  # Выбрать лучшую
+```
+
+### Сценарий 4: Production
+```bash
+# Найти лучшую модель
+python model_manager.py best --metric mae
+
+# Экспортировать для использования
+python model_manager.py export --version v005_... --output ./production
+
+# Проверить
+python run_inference.py --model-path ./production
+```
+
+---
+
+## 📊 Метрики
+
+| Метрика | Описание | Лучше |
+|---------|----------|-------|
+| **MAE** | Средняя ошибка | ↓ Меньше |
+| **RMSE** | Корень средней квадратичной ошибки | ↓ Меньше |
+| **R²** | Коэффициент детерминации | ↑ Больше |
+
+**Целевые значения:**
+- MAE < 0.35
+- RMSE < 0.60
+- R² > 0.65
+
+---
+
+## ⚡ Быстрые советы
+
+### Чтобы не забыть версию
+```bash
+# В README каждой модели есть команда для запуска:
+cat models_archive/v003_*/README.txt
+# → python run_inference.py --model-version 3
+```
+
+### Автоматический выбор лучшей
+```bash
+# Найти и использовать лучшую модель
+BEST=$(python model_manager.py best --metric mae | grep -oP 'v\d+')
+python run_inference.py --model-version ${BEST:1}
+```
+
+### Backup моделей
+```bash
+# Скопировать все модели
+cp -r models_archive models_archive_backup_$(date +%Y%m%d)
+```
+
+### История экспериментов
+```bash
+# Посмотреть хронологию
+python model_manager.py list | sort
+
+# Только недавние (сегодняшние)
+python model_manager.py list | grep $(date +%Y-%m-%d)
+```
+
+---
+
+## 🐛 Решение проблем
+
+**Проблема:** "No models found"
+```bash
+# Проверить путь
+ls models_archive/
+
+# Если пусто - обучить первую модель
+python run_training.py
+```
+
+**Проблема:** "Model not found"
+```bash
+# Проверить точное имя
+python model_manager.py list
+
+# Использовать полное имя
+python model_manager.py info --version v001_20241218_143052
+```
+
+**Проблема:** Не работает tabulate
+```bash
+pip install tabulate
+```
+
+---
+
+## 📝 Файлы в версии модели
+
+```
+v003_20241218_163045/
+├── checkpoints/
+│   ├── best_model.pt          ← 85,957 параметров
+│   └── scalers.pkl            ← Нормализация данных
+├── logs/                       ← (пусто, для будущего)
+├── training_config.json       ← Все параметры обучения
+├── training_metrics.json      ← Метрики в JSON
+├── training_summary.txt       ← Текстовый отчет
+└── README.txt                 ← Как использовать эту модель
+```
+
+**Размер:** ~350 KB на модель (small!)
+
+---
+
+## 🎓 Полезные алиасы (добавьте в ~/.bashrc)
+
+```bash
+alias train='python run_training.py'
+alias models='python model_manager.py list'
+alias infer='python run_inference.py'
+alias best='python model_manager.py best'
+
+# Теперь можно просто:
+train
+models
+best
+infer
+```
+
+---
+
+## 🔗 Связанные команды
+
+```bash
+# Посмотреть конфигурацию
+cat models_archive/v003_*/training_config.json | jq
+
+# Посмотреть метрики
+cat models_archive/v003_*/training_metrics.json | jq .test_metrics
+
+# Посмотреть отчет
+cat models_archive/v003_*/training_summary.txt
+
+# Все версии в одной строке
+ls models_archive/ | grep ^v
+```
+
+---
+
+## 💡 Pro Tips
+
+1. **Коммитьте config.py перед обучением** - будете знать какие параметры использовались
+2. **Делайте заметки** - добавляйте комментарии в config.py о том, что меняли
+3. **Не удаляйте модели сразу** - может понадобиться откат
+4. **Экспортируйте лучшие модели** - отдельно от архива
+5. **Проверяйте inference сразу** - после обучения сделайте тестовое предсказание
+
+---
+
+## 🎯 Ключевое отличие от старой системы
+
+### Было ❌
+```
+checkpoints/
+└── best_model.pt  ← ПЕРЕЗАПИСЫВАЕТСЯ каждый раз
+```
+
+### Стало ✅
+```
+models_archive/
+├── v001_... ← Первая версия (сохранена)
+├── v002_... ← Вторая версия (сохранена)
+└── v003_... ← Третья версия (сохранена)
+```
+
+**Все версии сохраняются навсегда!** 🎉
