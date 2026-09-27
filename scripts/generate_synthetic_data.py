@@ -133,18 +133,29 @@ def peak_period(x, fmin=1 / 60, fmax=0.5):
     return 1 / fp if fp > 0 else float('nan')
 
 
-def generate(n_rows: int, seed: int = 7, real_df: pd.DataFrame = None) -> pd.DataFrame:
+def generate(n_rows: int, seed: int = 7, real_df: pd.DataFrame = None,
+             psd_chunks: list = None) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     n = n_rows
 
     # --- Параметры из реальных данных ---
+    # real_df — DataFrame, по которому считаются ВСЕ статистики генератора.
+    # Для закрытия утечки L-1 он должен содержать ТОЛЬКО train-строки.
+    # psd_chunks — список непрерывных train-кусков: периоды качки = МЕДИАНА
+    # пиков по кускам (один короткий кусок даёт смещённую оценку).
     r = real_df
     std_of = lambda c: float(np.std(r[c].values.astype(float)))
     mean_of = lambda c: float(np.mean(r[c].values.astype(float)))
 
-    T_roll = peak_period(r['Roll(градусы)'].values)          # ~11.6 с
-    T_pitch = peak_period(r['Pitch(градусы)'].values)        # ~9.0 с
-    T_vert = peak_period(r['Vertical(Метр)'].values)         # ~10.4 с
+    def median_peak(col):
+        src = psd_chunks if psd_chunks else [r]
+        peaks = [peak_period(d[col].values) for d in src]
+        peaks = [p for p in peaks if np.isfinite(p)]
+        return float(np.median(peaks)) if peaks else float('nan')
+
+    T_roll = median_peak('Roll(градусы)')
+    T_pitch = median_peak('Pitch(градусы)')
+    T_vert = median_peak('Vertical(Метр)')
 
     # --- Качка: осцилляторы с медленной огибающей ---
     def motion(T_peak, std_target, sec_share=0.35):
@@ -303,18 +314,54 @@ def main():
     parser.add_argument('--seed', type=int, default=7)
     parser.add_argument('--out', type=str, default='data/raw/synthetic_data.csv')
     parser.add_argument('--validate', action='store_true')
+    parser.add_argument('--fit-train-only', action='store_true',
+                        help='Статистики генератора — только по train-региону записи '
+                             '(закрытие утечки L-1 из RESEARCH_LOG.md)')
+    parser.add_argument('--skip-rows', type=int, default=4000,
+                        help='Начало активного региона (совместно с --fit-train-only)')
     args = parser.parse_args()
 
-    real = load_data(PROJECT_ROOT / 'data' / 'raw' / 'your_data.csv')
-    syn = generate(args.rows, seed=args.seed, real_df=real)
+    real_full = load_data(PROJECT_ROOT / 'data' / 'raw' / 'your_data.csv')
+
+    fit_df = real_full
+    psd_df = None
+    active_df = real_full
+    if args.fit_train_only:
+        # Точно повторяем split_segments по активному региону и берём ТОЛЬКО train-строки
+        active = real_full.iloc[args.skip_rows:].reset_index(drop=True)
+        chunk = 1000
+        keep = []
+        n_chunks = len(active) // chunk
+        for i in range(n_chunks + 1):
+            s = i * chunk
+            e = min((i + 1) * chunk, len(active))
+            if s >= len(active):
+                break
+            c = active.iloc[s:e]
+            if len(c) < 100:
+                keep.extend(range(s, e))          # малый хвост — в train
+                continue
+            keep.extend(range(s, s + int(len(c) * 0.7)))   # первые 70% чанка
+        fit_df = active.iloc[sorted(keep)].reset_index(drop=True)
+        active_df = active
+        # непрерывные train-куски для спектров (медиана пиков по кускам)
+        psd_chunks = [active.iloc[i * chunk: i * chunk + int(chunk * 0.7)]
+                      for i in range(n_chunks)]
+        print(f'⚡ FIT-TRAIN-ONLY: статистики по {len(fit_df)} train-строкам '
+              f'(активный регион от строки {args.skip_rows}); '
+              f'периоды качки — медиана пиков по {len(psd_chunks)} train-кускам')
+    syn = generate(args.rows, seed=args.seed, real_df=fit_df, psd_chunks=psd_chunks)
 
     out = PROJECT_ROOT / args.out
     syn.to_csv(out, sep='\t', index=False, encoding='utf-8')
     print(f'✓ Синтетика сохранена: {out} ({len(syn)} строк × {len(syn.columns)} колонок)')
 
     if args.validate:
-        report = validate(real, syn)
-        (out.parent / 'synthetic_validation.txt').write_text(report, encoding='utf-8')
+        # Валидация против АКТИВНОГО региона записи (включая тестовые чанки):
+        # вопрос «покрыл ли train-fitted генератор тест» — метрика генерализуемости.
+        # Валидатор ничего не подгоняет, утечки нет.
+        report = validate(active_df, syn)
+        (out.parent / 'synthetic_validation_trainfit.txt').write_text(report, encoding='utf-8')
 
 
 if __name__ == '__main__':
