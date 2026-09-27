@@ -40,11 +40,13 @@ class Trainer:
             weight_decay=config.weight_decay
         )
 
-        # Функция потерь с весами из конфига
+        # Функция потерь с весами из конфига (переопределяемыми для sweep-экспериментов)
+        loss_weights = getattr(config, 'loss_weights', None) or \
+            {'mse': 1.0, 'huber': 0.5, 'smoothness': 0.1}
         self.criterion = VesselLoss(
             target_weights=config.target_weights,
             target_names=config.target_columns,
-            loss_weights={'mse': 1.0, 'huber': 0.5, 'smoothness': 0.1}
+            loss_weights=loss_weights
         )
 
         # Выводим информацию о весах

@@ -124,16 +124,39 @@ def main():
     parser.add_argument('--fixed-scaler', action='store_true',
                         help='Скалеры обучаются на ПОЛНОМ train независимо от подмножества '
                              '(controlled learning-curve: убирает влияние скалера из сравнения)')
+    parser.add_argument('--lr', type=float, default=None,
+                        help='Переопределить learning_rate')
+    parser.add_argument('--roll-weight', type=float, default=None,
+                        help='Абсолютный вес цели Roll(градусы) в loss (иначе из профиля)')
+    parser.add_argument('--huber-weight', type=float, default=None,
+                        help='Вес huber-компоненты loss')
+    parser.add_argument('--smooth-weight', type=float, default=None,
+                        help='Вес smoothness-компоненты loss')
+    parser.add_argument('--no-attention', action='store_true',
+                        help='Отключить attention в декодере')
     args = parser.parse_args()
 
     start_time = time.time()
 
-    # 1. Конфигурация + воспроизводимость
+    # 1. Конфигурация + воспроизводимость + переопределения (для sweep-экспериментов)
     config = Config()
     if args.seed is not None:
         config.seed = args.seed
     if args.max_epochs is not None:
         config.num_epochs = args.max_epochs
+    if args.lr is not None:
+        config.learning_rate = args.lr
+    if args.roll_weight is not None and config.target_weights and 'Roll(градусы)' in config.target_weights:
+        config.target_weights['Roll(градусы)'] = args.roll_weight
+    if args.huber_weight is not None or args.smooth_weight is not None:
+        lw = dict(config.loss_weights)
+        if args.huber_weight is not None:
+            lw['huber'] = args.huber_weight
+        if args.smooth_weight is not None:
+            lw['smoothness'] = args.smooth_weight
+        config.loss_weights = lw
+    if args.no_attention:
+        config.use_attention = False
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     random.seed(config.seed)
@@ -306,10 +329,15 @@ def main():
         'early_stopping_patience': config.early_stopping_patience,
         'max_grad_norm': config.max_grad_norm,
         'loss_weights': {'mse': 1.0, 'huber': 0.5, 'smoothness': 0.1},
+        'loss_weights': dict(config.loss_weights),
         'teacher_forcing_ratio': 0.5,
         'seed': config.seed,
         'device': str(device),
         'quick_test': bool(args.data_limit or args.max_epochs),
+        'overrides': {'lr': args.lr, 'roll_weight': args.roll_weight,
+                      'huber_weight': args.huber_weight,
+                      'smooth_weight': args.smooth_weight,
+                      'no_attention': args.no_attention},
     }
     reg.write_manifest(run_dir, manifest)
 

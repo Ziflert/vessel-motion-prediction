@@ -134,6 +134,8 @@ class Config:
     # =========================================================================
     # ОБУЧЕНИЕ
     # =========================================================================
+    loss_weights: Dict[str, float] = field(default_factory=lambda:
+        {'mse': 1.0, 'huber': 0.5, 'smoothness': 0.1})
     batch_size: int = 48
     learning_rate: float = 0.0005
     weight_decay: float = 1e-4
