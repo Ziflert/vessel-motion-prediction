@@ -118,21 +118,25 @@ class VesselDataset(Dataset):
         return torch.from_numpy(x), torch.from_numpy(y)
 
 
-def create_dataloaders(train_data, val_data, test_data, config):
+def create_dataloaders(train_data, val_data, test_data, config, extra_train_data=None,
+                       scalers=None):
     """
     Создает ОПТИМИЗИРОВАННЫЕ DataLoader'ы с максимальной производительностью.
 
-    Каждый из *_data аргументов — DataFrame ИЛИ список непрерывных сегментов
-    (рекомендуется: сегменты сплита без склейки, чтобы окна не пересекали
-    временные разрывы).
+    Каждый из *_data аргументов — DataFrame ИЛИ список непрерывных сегментов.
+    extra_train_data — ДОПОЛНИТЕЛЬНЫЕ обучающие сегменты (например синтетика):
+    скалеры по ним НЕ обучаются (только по train_data), окна нарезаются внутри
+    своих сегментов.
     """
 
-    def _as_segments(x):
-        return list(x) if isinstance(x, (list, tuple)) else [x]
-
-    # 1. Train Dataset
+    # 1. Train Dataset (скалеры — только по основным train-сегментам,
+    #    либо переданы готовые — режим fixed-scaler для controlled-экспериментов)
     print(f"\nCreating Train Dataset:")
-    train_dataset = VesselDataset(train_data, config, fit_scalers=True)
+    if scalers is not None:
+        train_dataset = VesselDataset(train_data, config, scalers=scalers, fit_scalers=False)
+        print("  (fixed scalers from full train)")
+    else:
+        train_dataset = VesselDataset(train_data, config, fit_scalers=True)
     scalers = train_dataset.scalers
 
     print(f"  Features: {train_dataset.feature_data.shape[1]}")
@@ -140,6 +144,13 @@ def create_dataloaders(train_data, val_data, test_data, config):
     print(f"  Segments: {train_dataset.n_segments}, "
           f"windows dropped at segment borders: {train_dataset.n_dropped_windows}")
     print(f"  Valid sequences: {len(train_dataset)}")
+
+    loader_datasets = [train_dataset]
+    if extra_train_data is not None:
+        extra_dataset = VesselDataset(extra_train_data, config, scalers=scalers, fit_scalers=False)
+        print(f"  + Extra train (synthetic): segments={extra_dataset.n_segments}, "
+              f"windows={len(extra_dataset)}")
+        loader_datasets.append(extra_dataset)
 
     # 2. Validation Dataset
     print(f"\nCreating Validation Dataset:")
@@ -171,8 +182,14 @@ def create_dataloaders(train_data, val_data, test_data, config):
     if config.device == 'cuda' and config.num_workers > 0:
         dataloader_kwargs['prefetch_factor'] = 2
 
+    if len(loader_datasets) > 1:
+        from torch.utils.data import ConcatDataset
+        train_src = ConcatDataset(loader_datasets)
+    else:
+        train_src = loader_datasets[0]
+
     train_loader = DataLoader(
-        train_dataset,
+        train_src,
         shuffle=True,
         drop_last=True,
         **dataloader_kwargs

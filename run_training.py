@@ -103,8 +103,27 @@ def main():
                         help='Переопределить число эпох (быстрые проверки пайплайна)')
     parser.add_argument('--data-limit', type=int, default=None,
                         help='Взять только первые N строк данных (быстрые проверки)')
+    parser.add_argument('--skip-rows', type=int, default=None,
+                        help='Отбросить первые N строк (например «мёртвую» тихую преамбулу записи)')
     parser.add_argument('--seed', type=int, default=None,
                         help='Переопределить seed (мультисид-эксперименты)')
+    parser.add_argument('--train-frac', type=float, default=None,
+                        help='Доля каждого train-сегмента (ломается при малых долях — используйте --train-segments)')
+    parser.add_argument('--train-segments', type=int, default=None,
+                        help='Использовать K train-сегментов: первые (или случайные при --subset-seed)')
+    parser.add_argument('--subset-seed', type=int, default=None,
+                        help='Seed СЛУЧАЙНОГО выбора K train-сегментов (отвязывает размер от порядка сегментов)')
+    parser.add_argument('--train-synthetic-csv', type=str, default=None,
+                        help='Заменить train на синтетический файл (E2: чистая синтетика)')
+    parser.add_argument('--train-synthetic-rows', type=int, default=None,
+                        help='Сколько строк синтетики взять (для --train-synthetic-csv)')
+    parser.add_argument('--extra-train-csv', type=str, default=None,
+                        help='Добавить синтетический файл к реальному train (E3: аугментация)')
+    parser.add_argument('--extra-train-rows', type=int, default=None,
+                        help='Сколько строк синтетики взять из --extra-train-csv')
+    parser.add_argument('--fixed-scaler', action='store_true',
+                        help='Скалеры обучаются на ПОЛНОМ train независимо от подмножества '
+                             '(controlled learning-curve: убирает влияние скалера из сравнения)')
     args = parser.parse_args()
 
     start_time = time.time()
@@ -159,6 +178,10 @@ def main():
     df = load_data(data_path)
     print(f"  Loaded {len(df)} rows, {len(df.columns)} columns from {data_path.name}")
 
+    if args.skip_rows is not None:
+        df = df.iloc[args.skip_rows:].reset_index(drop=True)
+        print(f"  ⚡ SKIP-ROWS={args.skip_rows}: осталось {len(df)} строк")
+
     if args.data_limit is not None:
         df = df.iloc[:args.data_limit].reset_index(drop=True)
         print(f"  ⚡ QUICK TEST: data limited to first {len(df)} rows")
@@ -175,6 +198,52 @@ def main():
     # 4. Сплит на НЕПРЕРЫВНЫЕ сегменты (без утечки между выборками)
     print("\nPerforming Mixed Weather Split (chunked segments, no window leakage)...")
     train_segments, val_segments, test_segments, test_row_ranges = split_segments(df)
+
+    # Learning curve: подмножество train-сегментов. При --subset-seed — СЛУЧАЙНОЕ
+    # (отвязывает размер выборки от порядка сегментов/штормовости), иначе первые K.
+    full_train_segments = list(train_segments)
+    if args.train_segments is not None:
+        total_segs = len(train_segments)
+        if args.subset_seed is not None:
+            srng = np.random.default_rng(args.subset_seed)
+            k = min(args.train_segments, total_segs)
+            chosen = sorted(srng.choice(total_segs, k, replace=False).tolist())
+            train_segments = [train_segments[i] for i in chosen]
+            print(f"  ⚡ TRAIN random {k}/{total_segs} segs (subset-seed={args.subset_seed}), "
+                  f"rows={sum(len(s) for s in train_segments)}")
+        else:
+            train_segments = train_segments[:args.train_segments]
+            print(f"  ⚡ TRAIN-SEGMENTS={args.train_segments}: train rows = "
+                  f"{sum(len(s) for s in train_segments)}")
+    elif args.train_frac is not None and 0 < args.train_frac < 1:
+        train_segments = [s.iloc[:max(int(len(s) * args.train_frac), 1)] for s in train_segments]
+        print(f"  ⚡ TRAIN-FRAC={args.train_frac}: train rows = "
+              f"{sum(len(s) for s in train_segments)}")
+
+    # E2: полная замена train на синтетику
+    extra_train_segments = None
+    if args.train_synthetic_csv:
+        syn = load_data(Path(args.train_synthetic_csv))
+        if args.train_synthetic_rows is not None:
+            syn = syn.iloc[:args.train_synthetic_rows]
+        if config.feature_engineering:
+            syn = engineer_features_dataframe(
+                syn, cyclic=config.feature_engineering['cyclic_encoding'],
+                relative_wave_angle=config.feature_engineering['relative_wave_angle'])
+        train_segments = [syn]
+        print(f"  ⚡ TRAIN = SYNTHETIC: {len(syn)} rows from {args.train_synthetic_csv}")
+
+    # E3: аугментация — добавляем синтетику к реальному train (скалеры по реальному)
+    if args.extra_train_csv:
+        syn = load_data(Path(args.extra_train_csv))
+        if config.feature_engineering:
+            syn = engineer_features_dataframe(
+                syn, cyclic=config.feature_engineering['cyclic_encoding'],
+                relative_wave_angle=config.feature_engineering['relative_wave_angle'])
+        if args.extra_train_rows is not None:
+            syn = syn.iloc[:args.extra_train_rows]
+        extra_train_segments = [syn]
+        print(f"  ⚡ EXTRA TRAIN (synthetic): +{len(syn)} rows from {args.extra_train_csv}")
     n_train = sum(len(s) for s in train_segments)
     n_val = sum(len(s) for s in val_segments)
     n_test = sum(len(s) for s in test_segments)
@@ -192,6 +261,16 @@ def main():
         'n_segments_val': len(val_segments),
         'n_segments_test': len(test_segments),
         'test_row_ranges': test_row_ranges,
+        'train_segments_used': args.train_segments,
+        'subset_seed': args.subset_seed,
+        'fixed_scaler': bool(args.fixed_scaler),
+        'train_frac': args.train_frac,
+        'synthetic_train': ({'path': args.train_synthetic_csv,
+                             'sha256': reg.file_sha256(args.train_synthetic_csv),
+                             'rows_used': args.train_synthetic_rows} if args.train_synthetic_csv else None),
+        'extra_train': ({'path': args.extra_train_csv,
+                         'sha256': reg.file_sha256(args.extra_train_csv),
+                         'rows_used': args.extra_train_rows} if args.extra_train_csv else None),
         'split': {'scheme': 'chunked_segments', 'chunk_size': 1000,
                   'train_frac': 0.7, 'val_frac': 0.15, 'seed': config.seed},
     }
@@ -234,9 +313,18 @@ def main():
     }
     reg.write_manifest(run_dir, manifest)
 
-    # 5. DataLoader'ы (StandardScaler обучается ТОЛЬКО на train)
+    # 5. DataLoader'ы (StandardScaler обучается ТОЛЬКО на реальном train;
+    #    при --fixed-scaler — на полном train до подрезки)
+    study_scalers = None
+    if args.fixed_scaler:
+        from data.dataset import VesselDataset as _VDS
+        study_scalers = _VDS(full_train_segments, config, fit_scalers=True).scalers
+        print("  ⚡ FIXED-SCALER: нормализация по ПОЛНОМУ train (controlled experiment)")
+
     train_loader, val_loader, test_loader, scalers = create_dataloaders(
-        train_segments, val_segments, test_segments, config
+        train_segments, val_segments, test_segments, config,
+        extra_train_data=extra_train_segments,
+        scalers=study_scalers,
     )
 
     # Параметры скалеров дублируем в manifest — inference больше не зависит от pickle
