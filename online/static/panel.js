@@ -7,6 +7,8 @@ const state = {
   targets: [], tgtIdx: 0,
   actual: [], markers: [], preds: null, predTick: null, predCount: 0,
   forecasts: [],  // история прогнозов для серии «прогноз был» ({tick, vals})
+  rows: [],       // сырые строки записи для плавающих показателей (F1, bounded)
+  live: [],       // выбранные параметры карточек-показателей
   ws: null, u: null, prChart: null,
 };
 window.state = state; // отладка/тесты: доступ к графику из консоли
@@ -66,7 +68,11 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
   t.classList.add('active');
   $('page-' + t.dataset.page).classList.add('active');
-  if (t.dataset.page === 'online' && !state.u) makeUPlot();
+  if (t.dataset.page === 'online') {
+    if (!state.u) makeUPlot();
+    renderLiveCards();
+    refreshLiveSelect();   // селект карточек-показателей (F1)
+  }
 }));
 
 function showBanner(text, ok = true) {
@@ -382,6 +388,8 @@ $('btn-start')?.addEventListener('click', async () => {
   if (!r.ok) { showBanner(j.error || 'Не удалось запустить', false); return; }
   state.predCount = 0; state.actual = []; state.markers = []; state.preds = null;
   state.forecasts = [];   // история прогнозов {tick, vals[[horizon][n_targets]]}
+  state.rows = [];        // сырые строки для плавающих показателей
+  refreshLiveSelect();
   if (!state.u) makeUPlot();
   connectWs();
 });
@@ -428,7 +436,12 @@ function handleTick(m) {
     state.forecasts.push({ tick: m.tick, vals: m.preds });
     if (state.forecasts.length > HISTORY + HORIZON * 2) state.forecasts.shift();
   }
+  if (m.row) {
+    state.rows.push(m.row);
+    if (state.rows.length > HISTORY + HORIZON) state.rows.shift();
+  }
   drawOnline();
+  drawLive();
   $('st-tick').textContent = m.tick;
   $('st-pred').textContent = state.predCount;
   $('st-ms').textContent = m.inference_ms ? m.inference_ms.toFixed(0) + ' мс' : '—';
@@ -436,6 +449,71 @@ function handleTick(m) {
   $('st-inp').className = 'marker ' + (m.input_anomaly ? 'on' : 'off');
   $('st-err').className = 'marker ' + (m.error_anomaly ? 'on' : 'off');
 }
+
+// ------------------------------------------------- ПЛАВАЮЩИЕ ПОКАЗАТЕЛИ (F1)
+// Карточки-индикаторы выбранных параметров записи: live-значение на текущем
+// tick, изменение за окно (60 tick), min/max за окно. Не только цель графика —
+// любые колонки записи (вход для СППР-виджетов, CONCEPT §4.2).
+const LIVE_WINDOW = 60;
+
+async function refreshLiveSelect() {
+  const csv = $('sel-csv').value;
+  if (!csv) return;
+  const r = await fetch(`/api/dataset/columns?csv=${encodeURIComponent(csv)}`);
+  const j = await r.json();
+  const sel = $('live-param');
+  const keep = sel.value;
+  sel.innerHTML = (j.columns || []).map(c => `<option>${c}</option>`).join('');
+  if (keep && (j.columns || []).includes(keep)) sel.value = keep;
+}
+
+function addLiveCard() {
+  const p = $('live-param').value;
+  if (!p) return;
+  if (state.live.includes(p)) { showBanner('Такая карточка уже есть', false); return; }
+  state.live.push(p);
+  renderLiveCards();
+}
+
+function removeLiveCard(p) {
+  state.live = state.live.filter(x => x !== p);
+  renderLiveCards();
+}
+
+function renderLiveCards() {
+  const wrap = $('live-cards');
+  wrap.innerHTML = state.live.map(p => `
+    <div class="live-card" data-param="${p}">
+      <div class="live-name">${p}<button class="live-x" title="убрать">×</button></div>
+      <div class="live-val">—</div>
+      <div class="live-stat">Δ60: — · min: — · max: —</div>
+    </div>`).join('') || '<span style="color:var(--dim);font-size:12px">карточек нет — выберите параметры выше</span>';
+  wrap.querySelectorAll('.live-x').forEach(b =>
+    b.addEventListener('click', () => removeLiveCard(b.closest('.live-card').dataset.param)));
+}
+
+function drawLive() {
+  if (!state.live.length) return;
+  const cur = state.rows[state.rows.length - 1];
+  if (!cur) return;
+  const win = state.rows.slice(-LIVE_WINDOW);
+  for (const p of state.live) {
+    const card = document.querySelector(`.live-card[data-param="${p}"]`);
+    if (!card) continue;
+    const v = cur[p];
+    const vals = win.map(r => r[p]).filter(x => x != null);
+    card.querySelector('.live-val').textContent =
+      v == null ? '—' : (+v).toFixed(3);
+    if (vals.length > 1) {
+      const delta = (+vals[vals.length - 1]) - (+vals[0]);
+      const mn = Math.min(...vals), mx = Math.max(...vals);
+      card.querySelector('.live-stat').textContent =
+        `Δ${LIVE_WINDOW}: ${delta >= 0 ? '+' : ''}${delta.toFixed(3)} · min: ${mn.toFixed(3)} · max: ${mx.toFixed(3)}`;
+    }
+  }
+}
+
+$('btn-live-add')?.addEventListener('click', addLiveCard);
 
 // ------------------------------------------------------------------ ДАННЫЕ
 async function refreshData() {

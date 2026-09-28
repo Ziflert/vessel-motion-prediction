@@ -321,6 +321,10 @@ class PlaybackRunner(threading.Thread):
                     'preds': None if result.preds is None
                     else [[round(float(v), 4) for v in row_]
                          for row_ in result.preds],
+                    # полная строка записи: вход плавающих показателей (F1) —
+                    # панель выбирает любые колонки без перезапуска сессии
+                    'row': {c: v for c in raw_columns
+                            if (v := _to_float(row.get(c))) is not None},
                 })
 
                 # ритм: привязка к монотонным часам, пауза не копит дрейф.
@@ -842,6 +846,22 @@ def _dataset_cached(name: str) -> pd.DataFrame:
         _CSV_CACHE.clear()
     _CSV_CACHE[str(path)] = (mt, df)
     return df
+
+
+def _to_float(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+@app.get('/api/dataset/columns')
+async def api_dataset_columns(csv: str):
+    """Список числовых колонок дата-сета (для плавающих показателей, F1)."""
+    if '/' in csv or '\\' in csv or '..' in csv:
+        return JSONResponse({'error': 'недопустимое имя'}, status_code=400)
+    df = _dataset_cached(csv)
+    return {'columns': list(df.columns)}
 
 
 @app.get('/api/dataset/view')

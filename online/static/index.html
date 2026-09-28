@@ -65,6 +65,14 @@
   #statusbar { padding:6px 16px; border-top:1px solid var(--border); display:flex;
     gap:20px; font-size:13px; background:var(--panel); flex-wrap:wrap; }
   .marker { font-weight:700; } .marker.on { color:var(--err); } .marker.off { color:var(--dim); }
+  #live-cards { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .live-card { background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+    padding:8px 12px; min-width:170px; cursor:grab; }
+  .live-name { font-size:11px; color:var(--dim); display:flex; justify-content:space-between; gap:8px; }
+  .live-x { background:transparent; border:none; color:var(--dim); cursor:pointer; font-size:14px; }
+  .live-x:hover { color:var(--err); }
+  .live-val { font-size:20px; font-weight:700; color:var(--accent); margin:2px 0; }
+  .live-stat { font-size:11px; color:var(--dim); }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width:900px){ .grid2{grid-template-columns:1fr;} }
   #banner { padding:6px 16px; background:#12321f; color:#9fe8bb; display:none; font-weight:600; }
@@ -223,6 +231,15 @@
     <span class="marker off" id="st-inp" data-help="mk-input">input_anomaly ?</span>
     <span class="marker off" id="st-err" data-help="mk-error">error_anomaly ?</span>
   </div>
+  <div class="card"><h3>Показатели (плавающие окна) <span class="help-btn" data-help="on-live">?</span></h3>
+    <div class="row" style="margin-bottom:6px;align-items:center">
+      <div class="field"><label>Параметр <span class="help-btn" data-help="on-live-param">?</span></label>
+        <select id="live-param"></select></div>
+      <button id="btn-live-add" data-help="on-live-add">＋ Добавить</button>
+      <span style="color:var(--dim);font-size:12px">карточки обновляются каждый tick; × — убрать</span>
+    </div>
+    <div id="live-cards"></div>
+  </div>
 </section>
 
 <!-- ================= ДАННЫЕ ================= -->
@@ -339,7 +356,7 @@
 
 <script src="/static/vendor/uplot.iife.js"></script>
 <!-- версия в query — защита от устаревшего кэша браузера (панель «не реагировала» на правки JS) -->
-<script src="/static/help.js?v=4"></script>
-<script src="/static/panel.js?v=4"></script>
+<script src="/static/help.js?v=5"></script>
+<script src="/static/panel.js?v=5"></script>
 </body>
 </html>
