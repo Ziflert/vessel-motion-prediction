@@ -37,14 +37,16 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 |---|---|
 | `CONCEPT.md` | **Якорь замысла** (инвариант загрузки, покрытие Ω, СППР) |
 | `CONTEXT.md` | Протокол чтения для ИИ/новичков |
+| `README.md` | Лендинг GitHub: быстрый старт, результаты, карта репозитория |
 | `USAGE.md` | Как запускать (обучение/inference/анализ) |
 | `RESEARCH_LOG.md` | Журнал: методика, результаты, ошибки, выводы (читать §5–7) |
-| `registry.py`, `models_archive/experiments.csv` | Версионирование прогонов (manifest.json — источник правды) |
-| `scripts/` | анализ данных, генератор синтетики, режимы волнения, rolling+спектры, сравнение моделей, learning curve |
+| `registry.py`, `models_archive/experiments.csv` | Версионирование прогонов (manifest.json — источник правды; чекпоинты НЕ в git) |
+| `scripts/` | рабочие: sweep, article_figures, generate_synthetic_data, analyze_real_data, evaluate_regimes, rolling_eval, learning_curve_report, fix_stale_runs |
+| `scripts/archive/` | одноразовые/легаси-скрипты (выполнены): patch_draft_ru, migrate_models_archive, compare_models, diagnose, check_data |
 | `run_training.py` / `run_inference.py` | CLI обучения / интерактивного прогноза |
-| `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур (`docs/ONLINE_SYSTEM_PLAN.md`) |
-| `docs/history/` | Исторические документы (не читать целиком) |
-| `Tasks fm user.txt` | Задачи от заказчика (№2 sweep коэффициентов — в работе) |
+| `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур, панель управления (`docs/ONLINE_SYSTEM_PLAN.md`) |
+| `docs/` | онлайн-документы (ONLINE_*), `TASKS_history.txt`, `history/` (исторические + `history/legacy_notes/`) |
+| `results/` | `sweep/`, `article/`, `learning_curve/`, `regimes/<run>/`, `rolling/<run>/`, `snapshots/`, `archive/` (легаси) |
 
 ## Открытые задачи (приоритет)
 

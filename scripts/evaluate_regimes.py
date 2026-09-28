@@ -207,7 +207,7 @@ def main():
     print('\n' + report)
 
     # Сохранение
-    out_dir = PROJECT_ROOT / 'results' / f'regimes_{run_dir.name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    out_dir = PROJECT_ROOT / 'results' / f'regimes/{run_dir.name}'
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / 'report.txt').write_text(report, encoding='utf-8')
 

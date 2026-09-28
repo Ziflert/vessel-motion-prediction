@@ -75,9 +75,14 @@ python -m venv .venv
 | `run_training.py` / `run_inference.py` | CLI обучения / прогноза |
 | `online/` | онлайн-система + веб-панель (`docs/ONLINE_SYSTEM_PLAN.md`, `docs/ONLINE_DECISIONS.md`, `docs/ONLINE_BUILD_LOG.md`) |
 | `models_archive/<run_id>/manifest.json` | карточка каждого прогона — источник правды; сводка — `models_archive/experiments.csv` |
-| `scripts/` | анализ данных, генератор синтетики, sweep, learning curve, режимы волнения, рисунки статьи |
-| `results/` | отчёты и графики экспериментов |
+| `scripts/` | рабочие: анализ данных, генератор синтетики, sweep, learning curve, рисунки статьи; `scripts/archive/` — одноразовые (выполнены) |
+| `results/` | `sweep/`, `article/figs/`, `learning_curve/`, `regimes/<run>/`, `rolling/<run>/`, `archive/` (легаси) |
 | `tests/` | smoke-тесты (в т.ч. `tests/test_online.py`) |
+| `docs/` | онлайн-документы, `TASKS_history.txt`, `history/` + `history/legacy_notes/` |
+
+> **Примечание:** чекпоинты моделей (`models_archive/*/checkpoints/`) НЕ хранятся в git —
+> только манифесты и метрики. Модели восстанавливаются перезапуском обучения по manifest
+> (условия прогона зафиксированы полностью); локальные чекпоинты нужны для inference/онлайна.
 
 ## 🧪 Воспроизводимость
 

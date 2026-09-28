@@ -48,3 +48,13 @@ logs/
 results/online/*
 !results/online/*_finetune/
 !results/online/*_finetune/**
+
+# Чекпоинты моделей (тяжёлые бинарники ~1-10 МБ x число прогонов).
+# В git остаются manifest.json + метрики — модели воспроизводятся перезапуском
+# обучения по manifest; локальные чекпоинты нужны только для inference/онлайна.
+models_archive/*/checkpoints/best_model.pt
+models_archive/*/checkpoints/scalers.pkl
+
+# Транзиентные данные дообучения (exported finetune-сегменты)
+data/online_finetune/*
+!data/online_finetune/.gitkeep

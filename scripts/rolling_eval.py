@@ -192,7 +192,7 @@ def main():
     print('\n' + report_text)
 
     # Сохранение
-    out_dir = PROJECT_ROOT / 'results' / f'rolling_{run_dir.name}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    out_dir = PROJECT_ROOT / 'results' / f'rolling/{run_dir.name}'
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / 'report.txt').write_text(report_text, encoding='utf-8')
 

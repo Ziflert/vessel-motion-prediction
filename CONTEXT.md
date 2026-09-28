@@ -13,17 +13,29 @@
 
 | Вопрос / задача | Что открыть |
 |---|---|
+| Быстрый старт/что где нажимать | `README.md` (лендинг) |
 | Как запустить обучение/inference/анализ | `USAGE.md` (целиком, ~200 строк) |
 | Параметры модели/профиля | `config/config.py` (только поля dataclass + `get_profile_config`) |
 | Как устроена архитектура | `models/vessel_predictor.py` (+ `encoder.py`, `decoder.py`, `attention.py` при необходимости) |
 | История версий v001–v004, старые метрики | `docs/history/PROJECT_OVERVIEW_v1_20260927.md` §7–9 (точечно, целиком НЕ читать) |
-| Какая версия модели выбрать | `models_archive/experiments.csv` (CSV) или `python model_manager.py list` |
+| Какая версия модели выбрать | `models_archive/experiments.csv` (CSV) или панель «Реестр» (кнопка В production) |
 | Онлайн-система (playback/live/аномалии/дообучение) | `docs/ONLINE_SYSTEM_PLAN.md` (план §10 — прогресс), `docs/ONLINE_BUILD_LOG.md` (журнал сборки), `docs/ONLINE_DECISIONS.md` (решения ±) |
 | Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
 | Куда идём дальше (идеи/roadmap LSTM) | `IDEAS.md` (статус D1–D4, приоритеты) |
 | Конкретный прогон | `models_archive/<run_id>/manifest.json` (источник правды) |
 | Статьи по теме | `/d/Temprary/research-article/analysis/` (карточки), `notes/web-lstm-articles.md` |
 | Черновик статьи | `/d/Temprary/research-article/draft-article/` |
+
+## Раскладка файлов (после cleanup 2026-09-28)
+
+- `!version_1` и `README/` удалены; корень — только CLI + `.md`-документы + `requirements.txt`;
+- `model_manager.py` → `docs/history/legacy_notes/` (легаси, заменён `registry.py`);
+- одноразовые скрипты → `scripts/archive/` (выполнены, не запускать);
+- `results/`: рабочие папки без run-id-суффиксов (`regimes/<run>/`, `rolling/<run>/`),
+  легаси-вывод — `results/archive/`;
+- `docs/TASKS_history.txt` — выполненные задачи заказчика (бывш. `Tasks fm user.txt`);
+- чекпоинты моделей (`best_model.pt`/`scalers.pkl`) НЕ в git — восстанавливаются
+  перезапуском обучения по manifest; в git только манифесты и метрики.
 
 ## Правила экономии контекста
 
