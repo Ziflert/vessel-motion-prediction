@@ -35,17 +35,16 @@ def collect():
         if not phys or not notes.startswith(('SWEEP', 'E1 ')):
             continue
         variant, k = None, None
+        seed = (m.get('training') or {}).get('seed') or 42
         if notes.startswith('SWEEP'):
             parts = notes.split()
             variant, k = parts[1], int(parts[2].split('=')[1])
         else:
-            # E1 segsK seed42 — базовые точки (только seed 42, для сопоставимости)
-            if 'seed42' not in notes or 'seed43' in notes:
-                continue
+            # E1 segsK seedN — базовые точки (все сиды, для мультисида)
             variant, k = 'baseline', int(notes.split('segs')[1].split()[0])
         overall = phys.get('overall', {})
         rows.append({
-            'variant': variant, 'K': k, 'run_id': m['run_id'],
+            'variant': variant, 'K': k, 'seed': seed, 'run_id': m['run_id'],
             'n_train': m.get('data', {}).get('rows_train'),
             'mae': overall.get('mae'), 'rmse': overall.get('rmse'), 'r2': overall.get('r2'),
             'skill': (m.get('results', {}).get('skill_vs_persistence') or {}).get('overall'),
@@ -65,14 +64,24 @@ def main():
     if df.empty:
         print('Нет прогонов SWEEP/E1')
         return
-    df = df.drop_duplicates(subset=['variant', 'K'], keep='last')
+    # мультисид: дедуп по (вариант, K, сид), затем mean±std по сидам
+    df = df.drop_duplicates(subset=['variant', 'K', 'seed'], keep='last')
+    df['per_target'] = df['per_target'].apply(lambda d: d if isinstance(d, dict) else {})
+    df = df.groupby(['variant', 'K']).agg(
+        n_train=('n_train', 'first'), mae=('mae', 'mean'), mae_std=('mae', 'std'),
+        r2=('r2', 'mean'), r2_std=('r2', 'std'), skill=('skill', 'mean'),
+        seeds=('seed', lambda s: sorted(s)),
+        run_id=('run_id', 'last'),
+        per_target=('per_target', lambda ss: pd.DataFrame(
+            [p for p in ss if p]).mean().to_dict() if any(p for p in ss) else {}),
+    ).reset_index()
 
     out = PROJECT_ROOT / 'results' / 'sweep'
     out.mkdir(parents=True, exist_ok=True)
 
     lines = ['=' * 88,
              'SWEEP: влияние коэффициентов на качество прогноза (физические единицы)',
-             'test фиксирован; активный регион; fixed scaler; seed 42',
+             'test фиксирован; активный регион; fixed scaler; мультисид mean±std',
              '=' * 88, '']
 
     table_rows, per_target_rows = [], []
@@ -82,15 +91,18 @@ def main():
         base_mae = float(base['mae'].iloc[0]) if len(base) else np.nan
         lines.append(f'--- Размер выборки K={k} '
                      f'({int(sub["n_train"].iloc[0])} строк) | baseline MAE = {base_mae:.3f} ---')
-        lines.append(f'{"вариант":12s} {"MAE":>8s} {"ΔMAE":>8s} {"R²":>7s} {"skill":>7s}')
+        lines.append(f'{"вариант":12s} {"MAE±std":>15s} {"ΔMAE":>8s} {"R²":>7s} {"skill":>7s} {"сиды":>12s}')
         for _, r in sub.sort_values('mae').iterrows():
             delta = r['mae'] - base_mae if np.isfinite(base_mae) else np.nan
             mark = ' ←' if r['variant'] == 'baseline' else ('  ✓' if delta < -0.05 else
                    ('  ✗' if delta > 0.05 else ''))
-            lines.append(f'{r["variant"]:12s} {r["mae"]:8.3f} {delta:+8.3f} '
-                         f'{r["r2"]:7.3f} {r["skill"]:+7.3f}{mark}')
+            mae_s = f'{r["mae"]:.3f}±{r["mae_std"]:.2f}' if np.isfinite(r['mae_std']) else f'{r["mae"]:.3f}'
+            seeds_s = ','.join(str(s) for s in r['seeds'])
+            lines.append(f'{r["variant"]:12s} {mae_s:>15s} {delta:+8.3f} '
+                         f'{r["r2"]:7.3f} {r["skill"]:+7.3f} {seeds_s:>12s}{mark}')
             table_rows.append({'K': k, 'variant': r['variant'], 'mae': r['mae'],
-                               'delta_mae': delta, 'r2': r['r2'], 'skill': r['skill'],
+                               'mae_std': r['mae_std'], 'delta_mae': delta, 'r2': r['r2'],
+                               'skill': r['skill'], 'n_seeds': len(r['seeds']),
                                'run_id': r['run_id']})
             pt = {'variant': r['variant'], 'K': k, **r['per_target']}
             per_target_rows.append(pt)

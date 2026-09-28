@@ -1,0 +1,203 @@
+{
+  "run_id": "20260928-075959-d12b",
+  "created_at": "2026-09-28T07:59:59",
+  "status": "failed",
+  "hypothesis": "SWEEP huber0 K=9 seed44",
+  "git_commit": "29c9baa11574c9f3d5f8e37d906152f4682a34a6",
+  "data": {
+    "path": "data\\raw\\your_data.csv",
+    "sha256": "5c3b66b5136651d5b1e8c217e5449f00a8392ead3dfff040d4eeb3bb4ef4a90c",
+    "rows_total": 8499,
+    "rows_train": 5949,
+    "rows_val": 1275,
+    "rows_test": 1275,
+    "n_segments_train": 9,
+    "n_segments_val": 9,
+    "n_segments_test": 9,
+    "test_row_ranges": [
+      [
+        850,
+        1000
+      ],
+      [
+        1850,
+        2000
+      ],
+      [
+        2850,
+        3000
+      ],
+      [
+        3850,
+        4000
+      ],
+      [
+        4850,
+        5000
+      ],
+      [
+        5850,
+        6000
+      ],
+      [
+        6850,
+        7000
+      ],
+      [
+        7850,
+        8000
+      ],
+      [
+        8424,
+        8499
+      ]
+    ],
+    "train_segments_used": 9,
+    "subset_seed": 123,
+    "fixed_scaler": true,
+    "train_frac": null,
+    "synthetic_train": null,
+    "extra_train": null,
+    "split": {
+      "scheme": "chunked_segments",
+      "chunk_size": 1000,
+      "train_frac": 0.7,
+      "val_frac": 0.15,
+      "seed": 44
+    }
+  },
+  "model": {
+    "type": "lstm",
+    "sequence_length": 120,
+    "prediction_horizon": 20,
+    "prediction_step": 1,
+    "encoder_hidden_dims": [
+      128,
+      96
+    ],
+    "encoder_dropout": 0.15,
+    "temporal_hidden_size": 128,
+    "temporal_num_layers": 2,
+    "temporal_dropout": 0.1,
+    "decoder_hidden_dim": 96,
+    "decoder_dropout": 0.1,
+    "bidirectional": false,
+    "use_attention": true
+  },
+  "training": {
+    "batch_size": 48,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.0001,
+    "num_epochs": 100,
+    "early_stopping_patience": 25,
+    "max_grad_norm": 1.0,
+    "loss_weights": {
+      "mse": 1.0,
+      "huber": 0.0,
+      "smoothness": 0.1
+    },
+    "teacher_forcing_ratio": 0.5,
+    "seed": 44,
+    "device": "cuda",
+    "quick_test": true,
+    "overrides": {
+      "lr": null,
+      "roll_weight": null,
+      "huber_weight": 0.0,
+      "smooth_weight": null,
+      "no_attention": false
+    }
+  },
+  "features": {
+    "profile": "full_prediction",
+    "input": [
+      "Swell(метры)",
+      "Wave.Highest(метры)",
+      "Wave.direction(sin)",
+      "Wave.direction(cos)",
+      "Wave.speed(узлы)",
+      "Wind.direction(sin)",
+      "Wind.direction(cos)",
+      "Current.direction(sin)",
+      "Current.direction(cos)",
+      "Current.speed(узлы)",
+      "Rudder Order(градусы)",
+      "Rudder State(градусы)",
+      "RPM(Обороты в минуту)",
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "SOG(узлы)",
+      "ROT(°/мин)",
+      "Course(sin)",
+      "Course(cos)",
+      "Rel.Wave.angle(sin)",
+      "Rel.Wave.angle(cos)"
+    ],
+    "targets": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "ROT(°/мин)",
+      "SOG(узлы)"
+    ],
+    "target_weights": {
+      "Pitch(градусы)": 1.0,
+      "Roll(градусы)": 2.0,
+      "Vertical(Метр)": 1.5,
+      "Velocity.Pitching(°/мин)": 0.8,
+      "Velocity.Rolling(°/мин)": 1.2,
+      "Velocity.Vertical(узлы)": 0.8,
+      "ROT(°/мин)": 1.5,
+      "SOG(узлы)": 1.0
+    },
+    "feature_engineering": {
+      "cyclic_encoding": true,
+      "relative_wave_angle": true
+    },
+    "input_dim": 25,
+    "output_dim": 8
+  },
+  "scalers": {
+    "type": "StandardScaler",
+    "target_mean": [
+      -0.0031050340967022166,
+      0.007190241039203853,
+      0.08154904591462454,
+      -0.003069287591430427,
+      0.07387981494276313,
+      -0.0020944723360090014,
+      1.3126317658828743,
+      6.117222618788185
+    ],
+    "target_std": [
+      0.5897932714087423,
+      3.9896357389356667,
+      1.03892870848536,
+      21.358255790261538,
+      129.0952117608323,
+      1.3422977049913742,
+      14.453702909107214,
+      1.5908581576403735
+    ],
+    "target_columns": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "ROT(°/мин)",
+      "SOG(узлы)"
+    ],
+    "feature_scaler_file": "checkpoints/scalers.pkl"
+  },
+  "results": {},
+  "updated_at": "2026-09-28T09:37:06"
+}

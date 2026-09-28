@@ -6,6 +6,7 @@ const HORIZON = 20, HISTORY = 600;
 const state = {
   targets: [], tgtIdx: 0,
   actual: [], markers: [], preds: null, predTick: null, predCount: 0,
+  forecasts: [],  // история прогнозов для серии «прогноз был» ({tick, vals})
   ws: null, u: null, prChart: null,
 };
 window.state = state; // отладка/тесты: доступ к графику из консоли
@@ -79,6 +80,20 @@ function showBanner(text, ok = true) {
 // ------------------------------------------------------------------ ЗАГРУЗКА СПИСКОВ
 async function jsonGet(url) { return (await fetch(url)).json(); }
 
+// Безопасный разбор ответа: при 500/обрыве сервер может вернуть не-JSON —
+// тогда панели молча «не нажимались» (баннер висел вечно). Теперь всегда
+// получаем объект с полем error/detail и показываем его пользователю.
+async function jsonResp(r) {
+  try {
+    const j = await r.json();
+    if (!r.ok && j && !j.error && j.detail) j.error =
+      typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail);
+    return j;
+  } catch {
+    return { error: `HTTP ${r.status} — сервер вернул не-JSON ответ (подробности в логе сервера)` };
+  }
+}
+
 async function loadModels(selIds) {
   const models = await jsonGet('/api/models');
   for (const sid of selIds) {
@@ -149,7 +164,7 @@ $('btn-train')?.addEventListener('click', async () => {
   if ($('tr-lr').value) body.lr = parseFloat($('tr-lr').value);
   const r = await fetch('/api/train', { method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Ошибка запуска', false); return; }
   showBanner('Обучение запущено, задача ' + j.job_id);
   followJob(j.job_id, 'tr-log');
@@ -180,7 +195,7 @@ $('btn-predict')?.addEventListener('click', async () => {
   showBanner('Считаю прогноз…');
   const r = await fetch('/api/predict', { method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Ошибка', false); return; }
   showBanner('');
   state.targets = j.targets;
@@ -290,13 +305,15 @@ function makeUPlot() {
     hooks: cursor.hooks,
     series: [
       { label: 'tick' },
-      { label: 'прогноз', stroke: '#f5a623', width: 2, dash: [6, 4] },
+      { label: 'прогноз (сейчас)', stroke: '#f5a623', width: 2, dash: [6, 4] },
       { label: 'факт', stroke: '#3aa2ff', width: 1.5, points: { show: true, size: 3 } },
+      { label: 'прогноз был (1 шаг назад)', stroke: '#35c777', width: 1.2 },
+      { label: `прогноз был (${HORIZON} шагов назад)`, stroke: '#e05bc4', width: 1.2, dash: [2, 3] },
       { label: 'input_anom', points: { show: true, size: 7 }, stroke: '#ef5466', width: 1 },
       { label: 'error_anom', points: { show: true, size: 7 }, stroke: '#b45cff', width: 1 },
     ],
   };
-  state.u = new uPlot(opts, [[], [], [], [], []], wrap);
+  state.u = new uPlot(opts, [[], [], [], [], [], [], []], wrap);
   state.u.__readout = $('on-cursor');
   attachZoomReset(state.u, $('btn-on-reset'));
 }
@@ -310,16 +327,28 @@ function drawOnline() {
   if (state.preds && state.predTick !== null)
     state.preds.forEach((v, i) => predMap.set(state.predTick + 1 + i, v));
   for (const m of state.markers) markMap.set(m.tick, m);
-  const ticks = [...new Set([...actMap.keys(), ...predMap.keys()])].sort((a, b) => a - b);
-  const a = [], p = [], mInp = [], mErr = [];
+  // История прошедших прогнозов: для каждого момента T берём, что модель
+  // предсказала для T lag'ами назад — 1 шаг и полная дистанция HORIZON.
+  // Так видно наглядно (не по цифрам), насколько хорошо/плохо прогноз сбывается.
+  const past1 = new Map(), pastH = new Map();
+  for (const f of state.forecasts) {
+    const t1 = f.tick + 1, v1 = f.vals ? f.vals[0] : null;
+    if (v1 !== undefined && t1 >= windowStart) past1.set(t1, v1 ? v1[state.tgtIdx] : null);
+    const tH = f.tick + HORIZON, vH = f.vals ? f.vals[HORIZON - 1] : null;
+    if (vH !== undefined && tH >= windowStart) pastH.set(tH, vH ? vH[state.tgtIdx] : null);
+  }
+  const ticks = [...new Set([...actMap.keys(), ...predMap.keys(), ...past1.keys(), ...pastH.keys()])]
+    .sort((a, b) => a - b);
+  const a = [], p = [], p1 = [], pH = [], mInp = [], mErr = [];
   for (const t of ticks) {
     const av = actMap.get(t) ?? null, pv = predMap.get(t) ?? null;
     a.push(av); p.push(pv);
+    p1.push(past1.get(t) ?? null); pH.push(pastH.get(t) ?? null);
     const mk = markMap.get(t);
     mInp.push(mk && mk.inp ? (av ?? pv) : null);
     mErr.push(mk && mk.err ? (av ?? pv) : null);
   }
-  state.u.setData([ticks, p, a, mInp, mErr]);
+  state.u.setData([ticks, p, a, p1, pH, mInp, mErr]);
 }
 
 function buildTargetBar() {
@@ -338,8 +367,8 @@ $('btn-start')?.addEventListener('click', async () => {
   const mode = $('sel-mode').value;
   const body = {
     model: $('sel-model').value, csv: $('sel-csv').value,
-    speed: mode === 'playback' ? parseFloat($('sel-speed').value) : 1.0,
-    time_scale: mode === 'live' ? parseFloat($('sel-speed').value) : 1.0,
+    speed: mode === 'playback' ? (parseFloat($('sel-speed').value) || 1.0) : 1.0,
+    time_scale: mode === 'live' ? (parseFloat($('sel-speed').value) || 1.0) : 1.0,
     start_row: parseInt($('start-row').value || '0', 10),
     limit: mode === 'playback' && $('limit').value ? parseInt($('limit').value, 10) : null,
     source: mode,
@@ -349,9 +378,10 @@ $('btn-start')?.addEventListener('click', async () => {
   };
   const r = await fetch('/api/session/start', { method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Не удалось запустить', false); return; }
   state.predCount = 0; state.actual = []; state.markers = []; state.preds = null;
+  state.forecasts = [];   // история прогнозов {tick, vals[[horizon][n_targets]]}
   if (!state.u) makeUPlot();
   connectWs();
 });
@@ -394,6 +424,9 @@ function handleTick(m) {
     state.preds = m.preds.map(row => row[state.tgtIdx]);
     state.predTick = m.tick;
     state.predCount += 1;
+    // сохраняем полный прогноз (все цели × горизонт) для серии «прогноз был»
+    state.forecasts.push({ tick: m.tick, vals: m.preds });
+    if (state.forecasts.length > HISTORY + HORIZON * 2) state.forecasts.shift();
   }
   drawOnline();
   $('st-tick').textContent = m.tick;
@@ -508,7 +541,7 @@ $('btn-upload')?.addEventListener('click', async () => {
   const r = await fetch('/api/datasets/upload', { method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ name: f.name, data_b64: btoa(unescape(encodeURIComponent(text))) }) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Ошибка загрузки', false); return; }
   showBanner(`Загружено: ${j.file} (${j.rows} строк, ${j.columns} колонок)`);
   refreshData(); loadCsvs(['tr-csv', 'sel-csv', 'pr-csv']);
@@ -519,7 +552,7 @@ $('btn-syn')?.addEventListener('click', async () => {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ rows: parseInt($('sy-rows').value || '30000', 10),
                            seed: parseInt($('sy-seed').value || '42', 10) }) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Ошибка', false); return; }
   showBanner('Генерация запущена, задача ' + j.job_id);
   followJob(j.job_id, 'jb-log');
@@ -535,7 +568,7 @@ $('btn-ft')?.addEventListener('click', async () => {
   if ($('ft-epochs').value) body.max_epochs = parseInt($('ft-epochs').value, 10);
   const r = await fetch('/api/finetune', { method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Ошибка', false); return; }
   showBanner('Дообучение запущено, задача ' + j.job_id);
   followJob(j.job_id, 'ft-log');

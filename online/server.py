@@ -33,7 +33,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 import numpy as np
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -355,13 +355,13 @@ class PlaybackRunner(threading.Thread):
 class StartRequest(BaseModel):
     model: str
     csv: str
-    speed: float = 1.0
+    speed: float | None = None       # None → дефолт по режиму (панель может прислать null)
     limit: int | None = None
     start_row: int = 0
     # Режим B (ШАГ 4):
     source: str = 'playback'          # 'playback' | 'live'
     seed: int = 42
-    time_scale: float = 1.0           # live: 1.0 = реальное время; >1 — только dev
+    time_scale: float | None = None   # live: 1.0 = реальное время; >1 — только dev
     duration_s: float | None = None   # лимит длительности (план §7)
     anomaly_every: int | None = None  # период «уникальных вставок» mock-сенсора
     motion_scale: float = 2.0         # амплитуда качки во вставке (сдвиг физики)
@@ -452,10 +452,10 @@ async def api_start(req: StartRequest):
     df_raw = load_raw_csv(DATA_DIR / req.csv)
 
     runner = PlaybackRunner(predictor, df_raw, fe_params, CFG,
-                            speed=max(0.0, req.speed), limit=req.limit,
+                            speed=max(0.0, req.speed if req.speed is not None else 1.0), limit=req.limit,
                             start_row=req.start_row,
                             source_mode=req.source,
-                            time_scale=max(0.0, req.time_scale),
+                            time_scale=max(0.0, req.time_scale if req.time_scale is not None else 1.0),
                             seed=req.seed,
                             duration_s=req.duration_s,
                             anomaly_every=req.anomaly_every,
@@ -707,6 +707,15 @@ async def api_predict(req: PredictRequest):
     manifest = reg.load_manifest(run_dir)
     ckpt = run_dir / 'checkpoints' / 'best_model.pt'
     scalers = run_dir / 'checkpoints' / 'scalers.pkl'
+    # прогон не завершён (сорван/прерван) — файла нет, падать с 500 нельзя:
+    # клиент получит понятное сообщение вместо «кнопка не нажимается»
+    missing = [str(p.name) for p in (ckpt, scalers) if not p.exists()]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(f'Модель {run_dir.name} не имеет файлов чекпоинта ({", ".join(missing)}) — '
+                    f'прогон не завершён (статус «{manifest.get("status", "?")}»). '
+                    f'Выберите завершённую модель или перезапустите обучение.'))
     predictor = VesselPredictor_Inference(str(ckpt), str(scalers))
     fe = extract_fe_params(manifest)
     df = load_raw_csv(DATA_DIR / req.csv)
@@ -915,6 +924,13 @@ async def api_dataset_snapshot(req: SnapshotRequest):
     return {'ok': True, 'png': str(png.relative_to(PROJECT_ROOT)),
             'csv': str(csv_out.relative_to(PROJECT_ROOT)),
             'rows': len(frag), 'range': rng}
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception(request: Request, exc: Exception):
+    """Любая неперехваченная ошибка — JSON, а не пустой 500:
+    панель показывает текст вместо молча висящего баннера «Считаю…»."""
+    return JSONResponse({'error': f'{type(exc).__name__}: {exc}'}, status_code=500)
 
 
 def main():
