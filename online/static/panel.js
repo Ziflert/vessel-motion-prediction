@@ -420,6 +420,87 @@ async function refreshData() {
   if (keep) fs.value = keep;
 }
 
+// ------------------------------------------------------------------ ДАННЫЕ
+let vwChart = null, vwData = null;
+
+function vwRangeSec() {
+  const v = $('vw-range').value;
+  if (v === 'custom') return parseInt($('vw-custom').value || '0', 10);
+  return parseInt(v, 10);
+}
+
+async function showView() {
+  const csv = $('vw-csv').value;
+  const start = parseInt($('vw-start').value || '0', 10);
+  const dur = vwRangeSec();
+  const r = await fetch(`/api/dataset/view?csv=${encodeURIComponent(csv)}&start=${start}&duration=${dur}`);
+  const j = await r.json();
+  if (j.error) { showBanner(j.error, false); return; }
+  vwData = j;
+  $('vw-total').textContent = j.total_rows;
+  const tsel = $('vw-target');
+  if (tsel.dataset.for !== csv) {
+    tsel.innerHTML = j.columns.map(c => `<option>${c}</option>`).join('');
+    tsel.dataset.for = csv;
+    const roll = j.columns.find(c => c.startsWith('Roll'));
+    if (roll) tsel.value = roll;
+  }
+  drawView();
+}
+
+function drawView() {
+  if (!vwData) return;
+  const tgt = $('vw-target').value;
+  const vals = vwData.series[tgt] || [];
+  const data = [vwData.xs, vals];
+  const series = [
+    { label: 'с' },
+    { label: tgt, stroke: '#3aa2ff', width: 1.5, points: { show: vwData.n_points <= 200, size: 2 } },
+  ];
+  if (!vwChart) {
+    if ($('vw-chart').clientWidth < 20) return;   // вкладка скрыта — график создадим при открытии
+    const c = makeCursorOpts();
+    vwChart = new uPlot({
+      width: $('vw-chart').clientWidth - 8, height: 280,
+      scales: { x: { time: false } },
+      cursor: c.cursor, hooks: c.hooks,
+      series,
+    }, data, $('vw-chart'));
+    vwChart.__readout = $('vw-readout');
+    attachZoomReset(vwChart, $('btn-vw-reset'));
+  } else {
+    vwChart.series[1].label = tgt;
+    vwChart.setData(data);
+  }
+}
+
+$('btn-vw-show')?.addEventListener('click', showView);
+$('vw-csv')?.addEventListener('change', () => {
+  const tsel = $('vw-target'); tsel.dataset.for = ''; showView();
+});
+$('vw-range')?.addEventListener('change', () => {
+  $('vw-custom-wrap').style.display = $('vw-range').value === 'custom' ? 'flex' : 'none';
+  showView();
+});
+$('vw-custom')?.addEventListener('change', showView);
+$('vw-target')?.addEventListener('change', drawView);
+
+$('btn-vw-snap')?.addEventListener('click', async () => {
+  if (!vwData) { showBanner('Сначала постройте график (👁 Показать)', false); return; }
+  const body = {
+    csv: $('vw-csv').value,
+    start: parseInt($('vw-start').value || '0', 10),
+    duration: vwRangeSec(),
+    target: $('vw-target').value,
+  };
+  const r = await fetch('/api/dataset/snapshot', { method: 'POST',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) { showBanner(j.error || 'Ошибка снапшота', false); return; }
+  $('vw-snapresult').innerHTML =
+    `✓ Сохранено: <code>${j.png}</code> и <code>${j.csv}</code> (${j.rows} строк)`;
+});
+
 $('btn-upload')?.addEventListener('click', async () => {
   const f = $('dt-file').files[0];
   if (!f) { showBanner('Выберите файл', false); return; }
@@ -531,8 +612,13 @@ async function init() {
   });
   tsel.value = cfg.profile;
   await Promise.all([loadModels(['sel-model', 'pr-model', 'ft-base', 'tr-init']),
-                     loadCsvs(['tr-csv', 'sel-csv', 'pr-csv']),
+                     loadCsvs(['tr-csv', 'sel-csv', 'pr-csv', 'vw-csv']),
                      refreshOverview(), refreshData(), refreshRegistry(), refreshJobs()]);
+  // просмотр данных: стартовый график (лениво, когда открыта вкладка)
+  document.querySelector('.tab[data-page="data"]').addEventListener('click', () => {
+    if (!vwChart) showView();
+  });
+  showView();
   // график онлайна создаётся лениво — при первом открытии вкладки «Онлайн»
   const st = await jsonGet('/api/session/status');
   if (st.running) { document.querySelector('.tab[data-page="online"]').click(); makeUPlot(); connectWs(); }

@@ -809,6 +809,114 @@ async def api_job(job_id: str):
         return {**job, 'log': job['log'][-80:]}
 
 
+class PredictRequest(BaseModel):
+    run_id: str
+    csv: str
+    start_row: int = 4000
+
+
+# ===========================================================================
+# ПРОСМОТР ДАННЫХ + SNAPSHOT (запрос заказчика)
+# ===========================================================================
+
+_CSV_CACHE: dict = {}  # path -> (mtime, df) — данные не меняются на лету
+
+
+def _dataset_cached(name: str) -> pd.DataFrame:
+    path = DATA_DIR / name
+    mt = path.stat().st_mtime
+    cached = _CSV_CACHE.get(str(path))
+    if cached and cached[0] == mt:
+        return cached[1]
+    df = load_raw_csv(path)
+    if len(_CSV_CACHE) > 8:
+        _CSV_CACHE.clear()
+    _CSV_CACHE[str(path)] = (mt, df)
+    return df
+
+
+@app.get('/api/dataset/view')
+async def api_dataset_view(csv: str, start: int = 0, duration: int = 0):
+    """Серия для графика. duration=0 — все данные; прореживание до <=4000 точек."""
+    if '/' in csv or '\\' in csv or '..' in csv:
+        return JSONResponse({'error': 'недопустимое имя'}, status_code=400)
+    df = _dataset_cached(csv)
+    n_total = len(df)
+    start = max(0, min(start, n_total - 1))
+    end = n_total if duration <= 0 else min(n_total, start + duration)
+    view = df.iloc[start:end]
+    stride = max(1, (len(view) + 3999) // 4000)
+    idx = list(range(0, len(view), stride))
+    series = {}
+    for col in df.columns:
+        if col in ('time',):
+            continue
+        try:
+            vals = pd.to_numeric(view[col].iloc[idx], errors='coerce')
+            series[col] = [None if pd.isna(v) else round(float(v), 4) for v in vals]
+        except Exception:
+            continue
+    return {
+        'total_rows': n_total, 'start': start, 'end': end,
+        'stride': stride, 'n_points': len(idx),
+        'xs': [start + i for i in idx],
+        'columns': list(series.keys()),
+        'series': series,
+    }
+
+
+def _sanitize_fname(s: str) -> str:
+    ok = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+             'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+             '_-. ()')
+    return ''.join(c if c in ok else '_' for c in s)[:80]
+
+
+class SnapshotRequest(BaseModel):
+    csv: str
+    start: int = 0
+    duration: int = 0
+    target: str
+
+
+@app.post('/api/dataset/snapshot')
+async def api_dataset_snapshot(req: SnapshotRequest):
+    """Сохранить выбранный фрагмент: PNG-график + CSV-фрагмент,results/snapshots/."""
+    df = _dataset_cached(req.csv)
+    n_total = len(df)
+    start = max(0, min(req.start, n_total - 1))
+    end = n_total if req.duration <= 0 else min(n_total, start + req.duration)
+    if req.target not in df.columns:
+        return JSONResponse({'error': f'нет колонки {req.target}'}, status_code=400)
+    frag = df.iloc[start:end]
+    xs = list(range(start, end))
+    rng = f'{start}-{end}с' if req.duration > 0 else f'все-{n_total}с'
+    fname_base = _sanitize_fname(f'{req.target}_{Path(req.csv).stem}_{rng}')
+    out_dir = PROJECT_ROOT / 'results' / 'snapshots'
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, 5))
+    ax.plot(xs, pd.to_numeric(frag[req.target], errors='coerce').values,
+            lw=0.8, color='#3aa2ff')
+    ax.set_xlabel('время, с')
+    ax.set_ylabel(req.target)
+    ax.set_title(f'{req.target} — {req.csv} [{rng}]')
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    png = out_dir / f'{fname_base}.png'
+    fig.savefig(png, dpi=120)
+    plt.close(fig)
+
+    csv_out = out_dir / f'{fname_base}.csv'
+    frag.to_csv(csv_out, sep='\t', index=False)
+    return {'ok': True, 'png': str(png.relative_to(PROJECT_ROOT)),
+            'csv': str(csv_out.relative_to(PROJECT_ROOT)),
+            'rows': len(frag), 'range': rng}
+
+
 def main():
     if hasattr(__import__('sys').stdout, 'reconfigure'):
         import sys

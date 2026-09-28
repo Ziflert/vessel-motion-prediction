@@ -227,6 +227,39 @@
 
 <!-- ================= ДАННЫЕ ================= -->
 <section class="page" id="page-data">
+  <div class="card"><h3>Просмотр данных <span class="help-btn" data-help="dt-view">?</span></h3>
+    <div class="row">
+      <div class="field"><label>Дата-сет <span class="help-btn" data-help="dt-view-csv">?</span></label>
+        <select id="vw-csv"></select></div>
+      <div class="field"><label>Промежуток, с <span class="help-btn" data-help="dt-view-range">?</span></label>
+        <select id="vw-range">
+          <option value="0" selected>Все данные</option>
+          <option value="60">60 с</option>
+          <option value="120">120 с</option>
+          <option value="240">240 с</option>
+          <option value="480">480 с</option>
+          <option value="900">900 с</option>
+          <option value="1800">1800 с</option>
+          <option value="custom">Своё значение…</option>
+        </select></div>
+      <div class="field" id="vw-custom-wrap" style="display:none">
+        <label>Своё значение, с <span class="help-btn" data-help="dt-view-range">?</span></label>
+        <input id="vw-custom" type="number" min="1" value="300" style="width:90px"></div>
+      <div class="field"><label>Начало, с <span class="help-btn" data-help="dt-view-start">?</span></label>
+        <input id="vw-start" type="number" min="0" value="0" style="width:90px"></div>
+      <div class="field"><label>Параметр <span class="help-btn" data-help="dt-view-target">?</span></label>
+        <select id="vw-target" style="min-width:220px"></select></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="primary" id="btn-vw-show" data-help="dt-view-show">👁 Показать</button></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="ok" id="btn-vw-snap" data-help="dt-snapshot">📸 Snapshot</button></div>
+    </div>
+    <p style="margin:8px 0 4px">Записано всего: <b id="vw-total" style="color:var(--accent)">—</b> с
+      <span id="vw-readout" style="color:var(--warn);margin-left:16px"></span>
+      <button id="btn-vw-reset" style="margin-left:16px" data-help="on-zoom-reset">⤢ Сброс масштаба</button></p>
+    <div id="vw-chart" style="min-height:280px"></div>
+    <div id="vw-snapresult" style="margin-top:8px;font-size:12px;color:var(--ok)"></div>
+  </div>
   <div class="card"><h3>Дата-сеты (data/raw)</h3><div id="dt-list"></div></div>
   <div class="grid2">
     <div class="card"><h3>Добавить дата-сет от эксперимента</h3>
