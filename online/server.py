@@ -400,6 +400,10 @@ async def api_models():
             'mae': (m.get('results', {}).get('physical', {})
                     .get('overall', {}).get('mae')),
         })
+    # сортировка: production первыми, затем кандидаты по MAE (лучшие сверху)
+    rank = {'production': 0, 'candidate': 1, 'archived': 2}
+    models.sort(key=lambda x: (rank.get(x.get('status'), 3),
+                               x.get('mae') if x.get('mae') is not None else float('inf')))
     return models
 
 

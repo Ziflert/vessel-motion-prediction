@@ -22,6 +22,7 @@ import csv
 import hashlib
 import json
 import random
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -54,11 +55,17 @@ REGISTRY_COLUMNS = [
 # Manifest
 # ============================================================================
 
-def new_run_id() -> str:
-    """run_id формата 20251219-120419-a3f2 (дата-время + 4 hex символа)."""
+def new_run_id(slug: str = '') -> str:
+    """run_id формата 20251219-120419-<slug>-a3f2 (дата-время + читаемый слаг + hex).
+
+    slug — короткое имя эксперимента из notes (например 'minimal-E1-K2-s42');
+    санитизируется (alnum/-/_), обрезается до 24 символов. hex-суффикс гарантирует
+    уникальность. Старые прогоны (без слага) остаются с их run_id.
+    """
     ts = datetime.now().strftime('%Y%m%d-%H%M%S')
     suffix = f'{random.randint(0, 0xFFFF):04x}'
-    return f'{ts}-{suffix}'
+    s = re.sub(r'[^A-Za-z0-9_-]+', '-', slug).strip('-').lower()[:24]
+    return f'{ts}-{s}-{suffix}' if s else f'{ts}-{suffix}'
 
 
 def create_run(models_dir: Path, manifest: Dict) -> Path:
@@ -136,7 +143,8 @@ def list_runs(models_dir: Path = MODELS_DIR) -> List[Dict]:
     if not models_dir.exists():
         return runs
     for d in sorted(models_dir.iterdir()):
-        if not d.is_dir():
+        if not d.is_dir() or d.name == 'archive':
+            # 'archive' — легаси/архивные прогоны: не видны в реестре, онлайне и свипах
             continue
         manifest = load_manifest(d)
         if manifest is not None:

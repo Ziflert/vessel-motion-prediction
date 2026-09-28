@@ -178,7 +178,8 @@ def main():
     print("=" * 70)
 
     # 2. Создание запуска: run_id + manifest.json (единый источник правды)
-    run_id = reg.new_run_id()
+    # run_id включает читаемый слаг из notes (например 'minimal-e1-k2-s42')
+    run_id = reg.new_run_id(slug=args.notes)
     manifest = {
         'run_id': run_id,
         'created_at': datetime.now().isoformat(timespec='seconds'),
