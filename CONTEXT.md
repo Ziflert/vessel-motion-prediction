@@ -23,7 +23,7 @@
 | Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
 | Куда идём дальше (идеи/roadmap LSTM) | `IDEAS.md` (статус D1–D4, приоритеты) |
 | Конкретный прогон | `models_archive/<run_id>/manifest.json` (источник правды) |
-| Статьи по теме | `/d/Temprary/research-article/analysis/` (карточки), `notes/web-lstm-articles.md` |
+| Статьи по теме — где что лежит | см. блок «Научные работы» ниже |
 | Черновик статьи | `/d/Temprary/research-article/draft-article/` |
 
 ## Раскладка файлов (после cleanup 2026-09-28)
@@ -36,6 +36,23 @@
 - `docs/TASKS_history.txt` — выполненные задачи заказчика (бывш. `Tasks fm user.txt`);
 - чекпоинты моделей (`best_model.pt`/`scalers.pkl`) НЕ в git — восстанавливаются
   перезапуском обучения по manifest; в git только манифесты и метрики.
+
+## Научные работы (библиотека research-article, 2026-09-28)
+
+- Скачиваются статьи/книги → `D:\Temprary\research-article\articles\`
+  (группировка по кластерам: autonomous-control, general, ship-motion-prediction,
+  trajectory-prediction, safety-extreme-conditions, storm-routing-weather,
+  ship-maneuvering-model, review-guidelines; новые — в `articles/_inbox/`).
+- Мастер-таблица после группировок → `D:\Temprary\research-article\notes\library.md`
+  (карточки ⬜/🤖/✅, статусы анализа). ⚠ В таблице отображены ещё НЕ все статьи/книги —
+  догружается по мере разборки `_inbox`.
+- Анализы (карточки-саммари по статьям) → `D:\Temprary\research-article\analysis\`
+  (`<кластер>__<короткое имя>.md`; глубокие карточки — в `articles/<кластер>/<имя>/`).
+- Тематические подборки новостей: `notes/web-lstm-articles.md`, `notes/web-sensor-articles.md`.
+- Позже появится отдельный файл с самыми полезными статьями — будет добавлен сюда по
+  указанию заказчика.
+- Пункт F2 (словарь состояний волнения) — вернуться позже; литературная база для него —
+  эта же библиотека (см. IDEAS.md §F).
 
 ## Правила экономии контекста
 
