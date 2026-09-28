@@ -43,3 +43,8 @@ logs/
 \!version_1/models_archive/
 \!version_1/results/
 \!version_1/__pycache__/
+
+# Онлайн-сессии (транзиентные данные; отчёты дообучений оставляем)
+results/online/*
+!results/online/*_finetune/
+!results/online/*_finetune/**

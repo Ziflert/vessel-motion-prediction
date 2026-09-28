@@ -18,6 +18,8 @@
 | Как устроена архитектура | `models/vessel_predictor.py` (+ `encoder.py`, `decoder.py`, `attention.py` при необходимости) |
 | История версий v001–v004, старые метрики | `docs/history/PROJECT_OVERVIEW_v1_20260927.md` §7–9 (точечно, целиком НЕ читать) |
 | Какая версия модели выбрать | `models_archive/experiments.csv` (CSV) или `python model_manager.py list` |
+| Онлайн-система (playback/live/аномалии/дообучение) | `docs/ONLINE_SYSTEM_PLAN.md` (план §10 — прогресс), `docs/ONLINE_BUILD_LOG.md` (журнал сборки), `docs/ONLINE_DECISIONS.md` (решения ±) |
+| Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
 | Конкретный прогон | `models_archive/<run_id>/manifest.json` (источник правды) |
 | Статьи по теме | `/d/Temprary/research-article/analysis/` (карточки), `notes/web-lstm-articles.md` |
 | Черновик статьи | `/d/Temprary/research-article/draft-article/` |

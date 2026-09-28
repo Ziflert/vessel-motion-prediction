@@ -165,6 +165,66 @@ python -c "import registry; registry.delete_run('<RUN_ID>')"
 
 ---
 
+## 6.1 ОНЛАЙН-СИСТЕМА — режимы A/B (пакет `online/`)
+
+> План: `docs/ONLINE_SYSTEM_PLAN.md`; решения: `docs/ONLINE_DECISIONS.md`;
+> журнал сборки: `docs/ONLINE_BUILD_LOG.md`; контракт сенсоров: `docs/ONLINE_API.md`.
+> Таймауты/пороги — в одном месте: `config/online.py`.
+
+### Веб-интерфейс (рекомендуется)
+
+```powershell
+python -m online.server --port 8765
+# открыть http://127.0.0.1:8765 (только локально)
+```
+
+**Панель управления проектом** — разделы: Обзор / Обучение (любой профиль +
+warm start) / Тест-прогноз / Онлайн (A+B) / Данные (загрузка + генерация
+синтетики) / Дообучение / Реестр (promote/delete) / Задачи. У каждой настройки
+знак **?** — наведение даёт краткую подсказку, клик — подробную справку
+«что произойдёт и зачем».
+
+- Режим A: playback CSV «как сенсор» (1 строка/сек, скорость 1×–100×/max);
+- Режим B: live (mock-сенсор: seed, длительность, «уникальные вставки»);
+- график: факт + прогноз на 20 с + маркеры; запись серверная — при закрытом
+  браузере сессия продолжается;
+- артефакты сессии: `results/online/<id>_{playback,live}/`
+  (`session.csv` + маркеры, `forecasts.csv`, `summary.txt`, `events.log`,
+  `config_snapshot.json`).
+
+### CLI playback (без браузера)
+
+```powershell
+python -m online.playback --model <run-id> --csv data/raw/your_data.csv \
+       --start-row 4000 --limit 300 --speed max
+```
+
+### Дообучение на «уникальных» данных (режим B)
+
+```powershell
+# маркеры error_anomaly = «модель устойчиво ошибается» → кандидат на дообучение
+python -m online.finetune --session results/online/<id>_live --run-id <base_run_id>
+# watchdog'и: min 600 строк, max 20 эпох, patience 5, wall-clock 30 мин,
+# cooldown 60 мин; валидационный гейт по holdout (см. план §8, ADR-6)
+```
+
+### Маркеры (не смешивать!)
+
+| Маркер | Значение | Действие |
+|---|---|---|
+| `input_anomaly` | вход вне train-распределения (z>4) | оператору: проверить условия/датчик |
+| `error_anomaly` | модель устойчиво ошибается (ratio>2.5×базового MAE) | кандидат на дообучение |
+
+### Тесты
+
+```powershell
+python tests/test_online.py    # ядро: буфер, watchdog, NaN-гейт, экспорт сегментов
+python tests/test_anomaly.py   # детекторы аномалий
+python tests/test_live.py      # live-источники (mock/file)
+```
+
+---
+
 ## 7. Где какие результаты лежат
 
 ```

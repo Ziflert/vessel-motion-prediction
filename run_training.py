@@ -134,12 +134,19 @@ def main():
                         help='Вес smoothness-компоненты loss')
     parser.add_argument('--no-attention', action='store_true',
                         help='Отключить attention в декодере')
+    parser.add_argument('--profile', type=str, default=None,
+                         help='Профиль обучения (motion_prediction | motion_core_prediction | '
+                              'rot_prediction | speed_prediction | full_prediction); '
+                              'default — профиль из config/config.py')
+    parser.add_argument('--init-from', type=str, default=None,
+                        help='Путь к run-директории: инициализация весов из её '
+                             'checkpoints/best_model.pt (warm start / дообучение)')
     args = parser.parse_args()
 
     start_time = time.time()
 
     # 1. Конфигурация + воспроизводимость + переопределения (для sweep-экспериментов)
-    config = Config()
+    config = Config(profile=args.profile) if args.profile else Config()
     if args.seed is not None:
         config.seed = args.seed
     if args.max_epochs is not None:
@@ -377,6 +384,16 @@ def main():
 
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
+
+    # 6.1 Warm start (дообучение): инициализация весами базовой модели
+    if args.init_from:
+        init_dir = Path(args.init_from)
+        init_ckpt = init_dir / 'checkpoints' / 'best_model.pt'
+        if not init_ckpt.exists():
+            raise FileNotFoundError(f'--init-from: нет {init_ckpt}')
+        init_state = torch.load(init_ckpt, map_location=device, weights_only=False)
+        model.load_state_dict(init_state['model_state_dict'])
+        print(f"⚡ WARM START: веса из {init_dir.name}")
 
     # 7. Обучение
     print("\n" + "-" * 70)

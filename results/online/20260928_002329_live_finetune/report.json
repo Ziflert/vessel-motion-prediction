@@ -1,0 +1,17 @@
+{
+  "session": "20260928_002329_live",
+  "base_run": "20260926-235011-3900",
+  "ft_rows": 311,
+  "ft_csv": "D:\\Temprary\\LSTM-Vessel_Motion_Prediction\\data\\online_finetune\\20260928_002329_live_ft.tsv",
+  "max_epochs": 1,
+  "lr": 0.00015,
+  "gate": {
+    "base_run": "20260926-235011-3900",
+    "base_mae": 12.42138385772705,
+    "new_run": "20260928-010331-3900",
+    "new_mae": 10.789556503295898,
+    "tolerance": 0.02,
+    "passed": true
+  },
+  "finished_at": "2026-09-28T01:03:41"
+}

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>⚓ Панель управления проектом — Vessel Motion Prediction</title>
+<link rel="stylesheet" href="/static/vendor/uplot.css">
+<style>
+  :root {
+    --bg:#0e131b; --panel:#161e2a; --panel2:#1c2635; --border:#263141;
+    --text:#d8e1ee; --dim:#7b8ba1; --accent:#3aa2ff; --ok:#35c777;
+    --warn:#f5a623; --err:#ef5466;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; height:100vh;
+    display:flex; flex-direction:column; }
+  nav { display:flex; gap:4px; padding:8px 12px; background:var(--panel);
+    border-bottom:1px solid var(--border); flex-wrap:wrap; align-items:center; }
+  nav h1 { font-size:15px; margin:0 14px 0 0; color:var(--accent); }
+  .tab { border:1px solid var(--border); background:transparent; color:var(--dim);
+    padding:7px 14px; border-radius:8px 8px 0 0; cursor:pointer; font-size:13px;
+    border-bottom:none; }
+  .tab.active { background:var(--panel2); color:var(--text); font-weight:700; }
+  main { flex:1; overflow:auto; padding:16px; }
+  section.page { display:none; }
+  section.page.active { display:block; }
+  .card { background:var(--panel); border:1px solid var(--border);
+    border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .card h3 { margin:0 0 10px; font-size:14px; color:var(--accent); }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+  .field { display:flex; flex-direction:column; gap:3px; }
+  .field label { font-size:11px; color:var(--dim); display:flex; gap:5px; align-items:center; }
+  select,input,button,textarea { background:#0c1117; color:var(--text);
+    border:1px solid var(--border); border-radius:6px; padding:6px 8px; font-size:13px; }
+  button { cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--accent); color:#0d1b12; font-weight:700; }
+  button.danger { background:var(--err); color:#1b0d0d; font-weight:700; }
+  button.ok { background:var(--ok); color:#0d1b12; font-weight:700; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th,td { border:1px solid var(--border); padding:4px 8px; text-align:left; }
+  th { color:var(--dim); font-weight:600; }
+  /* знак справки */
+  .help-btn { display:inline-flex; width:16px; height:16px; border-radius:50%;
+    border:1px solid var(--accent); color:var(--accent); font-size:11px;
+    align-items:center; justify-content:center; cursor:help; user-select:none;
+    font-weight:700; background:transparent; padding:0; line-height:1; }
+  .help-btn:hover { background:var(--accent); color:#0d1b12; }
+  #tooltip { position:fixed; z-index:50; max-width:340px; background:#000c;
+    border:1px solid var(--accent); border-radius:8px; padding:8px 10px;
+    font-size:12px; display:none; pointer-events:none; }
+  #modal-back { position:fixed; inset:0; background:#000a; display:none;
+    z-index:100; align-items:center; justify-content:center; }
+  #modal { background:var(--panel2); border:1px solid var(--accent);
+    border-radius:12px; max-width:560px; padding:18px 20px; max-height:80vh; overflow:auto; }
+  #modal h3 { margin:0 0 8px; color:var(--accent); }
+  #modal .what { margin:6px 0; }
+  #modal .why { color:var(--dim); }
+  #modal .lbl { color:var(--warn); font-weight:700; font-size:12px; }
+  pre.log { background:#0a0e14; border:1px solid var(--border); border-radius:8px;
+    padding:10px; font-size:11px; max-height:280px; overflow:auto; white-space:pre-wrap; }
+  .status-ok { color:var(--ok); } .status-err { color:var(--err); }
+  .status-run { color:var(--warn); }
+  .stat b { color:var(--accent); }
+  #statusbar { padding:6px 16px; border-top:1px solid var(--border); display:flex;
+    gap:20px; font-size:13px; background:var(--panel); flex-wrap:wrap; }
+  .marker { font-weight:700; } .marker.on { color:var(--err); } .marker.off { color:var(--dim); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:900px){ .grid2{grid-template-columns:1fr;} }
+  #banner { padding:6px 16px; background:#12321f; color:#9fe8bb; display:none; font-weight:600; }
+</style>
+</head>
+<body>
+<nav>
+  <h1>⚓ Vessel Motion Panel</h1>
+  <button class="tab active" data-page="overview">Обзор</button>
+  <button class="tab" data-page="train">Обучение</button>
+  <button class="tab" data-page="predict">Тест-прогноз</button>
+  <button class="tab" data-page="online">Онлайн</button>
+  <button class="tab" data-page="data">Данные</button>
+  <button class="tab" data-page="finetune">Дообучение</button>
+  <button class="tab" data-page="registry">Реестр</button>
+  <button class="tab" data-page="jobs">Задачи</button>
+</nav>
+<div id="banner"></div>
+<div id="tooltip"></div>
+<div id="modal-back"><div id="modal"></div></div>
+
+<main>
+
+<!-- ================= ОБЗОР ================= -->
+<section class="page active" id="page-overview">
+  <div class="card"><h3>Состояние проекта</h3>
+    <div class="row">
+      <span class="stat">Профиль конфига: <b id="ov-profile">—</b></span>
+      <span class="stat">Моделей в реестре: <b id="ov-models">—</b></span>
+      <span class="stat">Дата-сетов: <b id="ov-data">—</b></span>
+      <span class="stat">Онлайн-сессий: <b id="ov-sessions">—</b></span>
+    </div>
+  </div>
+  <div class="card"><h3>Текущий конфиг (config/config.py)</h3><div id="ov-config"></div></div>
+  <div class="card"><h3>Быстрый старт</h3>
+    <p>Разделы сверху: <b>Обучение</b> — новая версия модели; <b>Тест-прогноз</b> —
+    разовая проверка модели на данных; <b>Онлайн</b> — поточный режим (playback/live);
+    <b>Данные</b> — добавить/сгенерировать дата-сет; <b>Дообучение</b> — finetune
+    по маркерам онлайн-сессий; <b>Реестр</b> — версии моделей.</p>
+    <p style="color:var(--dim)">У каждой настройки есть знак <b>?</b> — наведите для краткой
+    подсказки, нажмите для подробной справки.</p>
+  </div>
+</section>
+
+<!-- ================= ОБУЧЕНИЕ ================= -->
+<section class="page" id="page-train">
+  <div class="card"><h3>Обучить новую версию модели</h3>
+    <div class="row">
+      <div class="field"><label>Профиль <span class="help-btn" data-help="cfg-profile">?</span></label>
+        <select id="tr-profile"></select></div>
+      <div class="field"><label>Дата-сет <span class="help-btn" data-help="cfg-data">?</span></label>
+        <select id="tr-csv"></select></div>
+      <div class="field"><label>Пропустить строк <span class="help-btn" data-help="cfg-skiprows">?</span></label>
+        <input id="tr-skiprows" type="number" value="4000" style="width:90px"></div>
+      <div class="field"><label>Train-сегментов <span class="help-btn" data-help="cfg-segments">?</span></label>
+        <input id="tr-segments" type="number" value="9" style="width:80px"></div>
+      <div class="field"><label>Эпох <span class="help-btn" data-help="cfg-epochs">?</span></label>
+        <input id="tr-epochs" type="number" value="100" style="width:80px"></div>
+      <div class="field"><label>LR <span class="help-btn" data-help="cfg-lr">?</span></label>
+        <input id="tr-lr" type="number" step="0.0001" placeholder="из конфига" style="width:100px"></div>
+      <div class="field"><label>Seed <span class="help-btn" data-help="cfg-seed">?</span></label>
+        <input id="tr-seed" type="number" value="42" style="width:70px"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label>Warm start из модели <span class="help-btn" data-help="cfg-warmstart">?</span></label>
+        <select id="tr-init"><option value="">— с нуля —</option></select></div>
+      <div class="field"><label>Заметка <span class="help-btn" data-help="cfg-notes">?</span></label>
+        <input id="tr-notes" value="обучение из панели" style="width:240px"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="primary" id="btn-train" data-help="train-run">▶ Обучить</button></div>
+    </div>
+    <pre class="log" id="tr-log" style="display:none"></pre>
+  </div>
+  <div class="card"><h3>Что ещё можно сделать</h3>
+    <p>Тонкая настройка весов loss/таргетов — CLI
+    <code>run_training.py --roll-weight --huber-weight --smooth-weight</code>
+    (см. USAGE.md §3); профили и их смысл — <code>config/config.py</code>.</p>
+  </div>
+</section>
+
+<!-- ================= ТЕСТ-ПРОГНОЗ ================= -->
+<section class="page" id="page-predict">
+  <div class="card"><h3>Разовое предсказание по окну данных</h3>
+    <div class="row">
+      <div class="field"><label>Модель <span class="help-btn" data-help="pred-model">?</span></label>
+        <select id="pr-model"></select></div>
+      <div class="field"><label>Дата-сет <span class="help-btn" data-help="pred-data">?</span></label>
+        <select id="pr-csv"></select></div>
+      <div class="field"><label>Начать со строки <span class="help-btn" data-help="pred-start">?</span></label>
+        <input id="pr-start" type="number" value="4000" style="width:100px"></div>
+      <div class="field"><label>&nbsp;</label>
+        <button class="primary" id="btn-predict" data-help="pred-run">🔮 Прогноз</button></div>
+    </div>
+    <div id="pr-mae" style="margin-top:10px"></div>
+  </div>
+  <div class="card"><h3>График <span class="help-btn" data-help="on-zoom">?</span></h3>
+    <div class="field"><label>Цель</label><select id="pr-target" style="min-width:240px"></select></div>
+    <div class="row" style="margin:6px 0;align-items:center">
+      <span class="stat" id="pr-cursor" style="color:var(--warn)"></span>
+      <button id="btn-pr-reset" data-help="on-zoom-reset">⤢ Сброс масштаба</button>
+    </div>
+    <div id="pr-chart" style="min-height:260px"></div>
+  </div>
+</section>
+
+<!-- ================= ОНЛАЙН ================= -->
+<section class="page" id="page-online">
+  <div class="card"><h3>Сессия онлайн-прогноза</h3>
+    <div class="row">
+      <div class="field"><label>Режим <span class="help-btn" data-help="on-mode">?</span></label>
+        <select id="sel-mode">
+          <option value="playback">A: playback CSV</option>
+          <option value="live">B: live (mock-сенсор)</option>
+        </select></div>
+      <div class="field"><label>Модель <span class="help-btn" data-help="on-model">?</span></label>
+        <select id="sel-model"></select></div>
+      <div class="field"><label>Дата-сет <span class="help-btn" data-help="on-csv">?</span></label>
+        <select id="sel-csv"></select></div>
+      <div class="field"><label>Скорость <span class="help-btn" data-help="on-speed">?</span></label>
+        <select id="sel-speed">
+          <option value="1">1× (реальное время)</option>
+          <option value="5" selected>5×</option>
+          <option value="20">20×</option><option value="100">100×</option>
+          <option value="0">max</option>
+        </select></div>
+      <div class="field"><label>Со строки <span class="help-btn" data-help="on-startrow">?</span></label>
+        <input id="start-row" type="number" value="4000" style="width:90px"></div>
+      <div class="field"><label>Строк (A) <span class="help-btn" data-help="on-limit">?</span></label>
+        <input id="limit" type="number" placeholder="все" style="width:80px"></div>
+      <div class="field"><label>Seed (B) <span class="help-btn" data-help="on-seed">?</span></label>
+        <input id="seed" type="number" value="42" style="width:70px"></div>
+      <div class="field"><label>Длительность B, с <span class="help-btn" data-help="on-duration">?</span></label>
+        <input id="duration" type="number" placeholder="без лимита" style="width:90px"></div>
+      <div class="field"><label>Вставка каждые N с <span class="help-btn" data-help="on-anomevery">?</span></label>
+        <input id="anomevery" type="number" placeholder="нет" style="width:80px"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="ok" id="btn-start" data-help="on-start">▶ Старт</button>
+      <button id="btn-pause" disabled data-help="on-pause">⏸ Пауза</button>
+      <button class="danger" id="btn-stop" disabled data-help="on-stop">■ Стоп</button>
+    </div>
+  </div>
+  <div class="card"><h3>График сессии <span class="help-btn" data-help="on-zoom">?</span></h3>
+    <div class="row" style="margin-bottom:6px;align-items:center">
+      <div id="tgt-bar"></div>
+      <span class="stat" id="on-cursor" style="margin-left:auto;color:var(--warn)"></span>
+      <button id="btn-on-reset" data-help="on-zoom-reset">⤢ Сброс масштаба</button>
+    </div>
+    <div id="chart-wrap" style="min-height:300px"></div>
+  </div>
+  <div id="statusbar">
+    <span class="stat">tick <b id="st-tick">—</b></span>
+    <span class="stat">прогнозов <b id="st-pred">0</b></span>
+    <span class="stat">inference <b id="st-ms">—</b></span>
+    <span class="stat">ratio ошибки <b id="st-ratio">—</b></span>
+    <span class="marker off" id="st-inp" data-help="mk-input">input_anomaly ?</span>
+    <span class="marker off" id="st-err" data-help="mk-error">error_anomaly ?</span>
+  </div>
+</section>
+
+<!-- ================= ДАННЫЕ ================= -->
+<section class="page" id="page-data">
+  <div class="card"><h3>Дата-сеты (data/raw)</h3><div id="dt-list"></div></div>
+  <div class="grid2">
+    <div class="card"><h3>Добавить дата-сет от эксперимента</h3>
+      <div class="row">
+        <div class="field"><label>CSV-файл <span class="help-btn" data-help="dt-upload">?</span></label>
+          <input type="file" id="dt-file" accept=".csv,.tsv,.txt"></div>
+        <div class="field"><label>&nbsp;</label>
+          <button class="primary" id="btn-upload" data-help="dt-upload-run">⬆ Загрузить</button></div>
+      </div>
+      <p style="color:var(--dim);font-size:12px">Проверяются обязательные колонки
+      (Pitch/Roll/Vertical/SOG/ROT); файл сохраняется в data/raw.</p>
+    </div>
+    <div class="card"><h3>Сгенерировать синтетический дата-сет</h3>
+      <div class="row">
+        <div class="field"><label>Строк <span class="help-btn" data-help="dt-syn-rows">?</span></label>
+          <input id="sy-rows" type="number" value="30000" style="width:100px"></div>
+        <div class="field"><label>Seed <span class="help-btn" data-help="cfg-seed">?</span></label>
+          <input id="sy-seed" type="number" value="42" style="width:70px"></div>
+        <div class="field"><label>&nbsp;</label>
+          <button class="primary" id="btn-syn" data-help="dt-syn-run">✨ Генерировать</button></div>
+      </div>
+      <p style="color:var(--dim);font-size:12px">Статистики генератора — только по
+      train-региону записи (закрытие утечки L-1); итог валидируется автоматически.</p>
+    </div>
+  </div>
+  <div class="card"><h3>Онлайн-сессии (для дообучения)</h3><div id="dt-sessions"></div></div>
+</section>
+
+<!-- ================= ДООБУЧЕНИЕ ================= -->
+<section class="page" id="page-finetune">
+  <div class="card"><h3>Дообучить модель на уникальных данных сессии</h3>
+    <div class="row">
+      <div class="field"><label>Сессия <span class="help-btn" data-help="ft-session">?</span></label>
+        <select id="ft-session"></select></div>
+      <div class="field"><label>Базовая модель <span class="help-btn" data-help="ft-base">?</span></label>
+        <select id="ft-base"></select></div>
+      <div class="field"><label>Min строк <span class="help-btn" data-help="ft-minrows">?</span></label>
+        <input id="ft-minrows" type="number" placeholder="600" style="width:80px"></div>
+      <div class="field"><label>Max эпох <span class="help-btn" data-help="ft-epochs">?</span></label>
+        <input id="ft-epochs" type="number" placeholder="20" style="width:80px"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label style="font-size:12px"><input type="checkbox" id="ft-allrows"> вся сессия
+        <span class="help-btn" data-help="ft-allrows">?</span></label>
+      <label style="font-size:12px"><input type="checkbox" id="ft-skipcd"> без cooldown
+        <span class="help-btn" data-help="ft-skipcd">?</span></label>
+      <button class="primary" id="btn-ft" data-help="ft-run">🔁 Дообучить</button>
+    </div>
+    <pre class="log" id="ft-log" style="display:none"></pre>
+    <p style="color:var(--dim);font-size:12px">Дообучение — warm start из базовой
+    модели, LR×0.3, валидационный гейт по holdout; автосвитча нет — новую модель
+    выбирайте вручную в «Онлайн»/«Реестр» (ADR-6).</p>
+  </div>
+</section>
+
+<!-- ================= РЕЕСТР ================= -->
+<section class="page" id="page-registry">
+  <div class="card"><h3>Версии моделей (models_archive)</h3>
+    <div id="rg-table"></div>
+    <div class="row" style="margin-top:10px">
+      <button class="ok" id="btn-promote" data-help="rg-promote">⭐ В production</button>
+      <button class="danger" id="btn-delete" data-help="rg-delete">🗑 Удалить</button>
+    </div>
+    <pre class="log" id="rg-manifest" style="display:none;margin-top:10px"></pre>
+  </div>
+</section>
+
+<!-- ================= ЗАДАЧИ ================= -->
+<section class="page" id="page-jobs">
+  <div class="card"><h3>Фоновые задачи (обучение/генерация/дообучение)</h3>
+    <div id="jb-list"></div>
+    <pre class="log" id="jb-log" style="display:none"></pre>
+  </div>
+</section>
+
+</main>
+
+<script src="/static/vendor/uplot.iife.js"></script>
+<script src="/static/help.js"></script>
+<script src="/static/panel.js"></script>
+</body>
+</html>

@@ -42,6 +42,7 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 | `registry.py`, `models_archive/experiments.csv` | Версионирование прогонов (manifest.json — источник правды) |
 | `scripts/` | анализ данных, генератор синтетики, режимы волнения, rolling+спектры, сравнение моделей, learning curve |
 | `run_training.py` / `run_inference.py` | CLI обучения / интерактивного прогноза |
+| `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур (`docs/ONLINE_SYSTEM_PLAN.md`) |
 | `docs/history/` | Исторические документы (не читать целиком) |
 | `Tasks fm user.txt` | Задачи от заказчика (№2 sweep коэффициентов — в работе) |
 
