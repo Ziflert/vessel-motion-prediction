@@ -1,0 +1,68 @@
+D:\Temprary\LSTM-Vessel_Motion_Prediction\.venv\Lib\site-packages\numpy\lib\_function_base_impl.py:3028: RuntimeWarning: Degrees of freedom <= 0 for slice
+  c = cov(x, y, rowvar, dtype=dtype)
+D:\Temprary\LSTM-Vessel_Motion_Prediction\.venv\Lib\site-packages\numpy\lib\_function_base_impl.py:2901: RuntimeWarning: divide by zero encountered in divide
+  c *= np.true_divide(1, fact)
+D:\Temprary\LSTM-Vessel_Motion_Prediction\.venv\Lib\site-packages\numpy\lib\_function_base_impl.py:2901: RuntimeWarning: invalid value encountered in multiply
+  c *= np.true_divide(1, fact)
+==============================================================================
+1. Контур «руль → ROT» глобально (весь активный регион)
+==============================================================================
+corr(ROT, Rudder State):   +0.487
+corr(ROT, Rudder Order):   +0.477
+corr(ROT, dCourse/мин):    +0.985
+corr(Rudder State, Rudder Order): +0.994  (исполнение руля)
+GAIN глобальный: ROT ≈ 0.284 °/мин на 1° перекладки руля
+
+==============================================================================
+2. GAIN «руль → ROT» по погодным состояниям (Wave.Highest, ступени)
+==============================================================================
+   h_s    n  rot_std  roll_std   gain  rot_right_waveR  rot_right_waveL   asym  rpm_mean  sog_mean  wind_force
+ 4.800   60    1.388     0.598    NaN              NaN              NaN    NaN    18.036     5.599      31.069
+ 4.900   60    0.428     1.005 -0.022              NaN              NaN    NaN    14.574     5.347      32.482
+ 5.000   60    0.776     0.673    NaN              NaN              NaN    NaN    59.711     5.504      33.365
+ 5.100   61    0.523     1.239    NaN              NaN              NaN    NaN    67.788     6.079      33.839
+ 5.300   60    3.506     0.514  0.572              NaN              NaN    NaN    69.250     7.050      34.542
+ 5.400   60    1.133     1.595    NaN              NaN              NaN    NaN    79.511     7.251      36.480
+ 5.500   61    3.760     0.929  0.709              NaN              NaN    NaN    89.273     7.313      37.543
+ 5.700   60    0.841     0.215    NaN              NaN              NaN    NaN    70.910     6.265      28.321
+ 5.800   60    0.891     0.133 -0.129              NaN              NaN    NaN    70.485     5.997      24.366
+ 5.900   61    1.277     0.112    NaN              NaN              NaN    NaN    70.421     6.026      22.001
+ 6.100   60    3.282     0.357    NaN              NaN           23.463    NaN    70.657     6.840      27.449
+ 6.200   60    1.750     1.251    NaN              NaN           23.580    NaN    70.355     7.048      33.479
+ 6.300   61    2.309     1.505    NaN              NaN              NaN    NaN    70.028     7.120      34.853
+ 6.400   60    3.931     1.236  0.657              NaN              NaN    NaN    69.814     7.342      34.551
+ 6.600   60    1.436     2.089    NaN              NaN              NaN    NaN    70.145     7.629      40.437
+ 6.800   60    0.645     1.818    NaN              NaN              NaN    NaN    70.388     7.277      43.148
+ 6.900   60    0.765     2.916    NaN              NaN              NaN    NaN    70.220     6.873      43.084
+ 7.200   60    1.152     1.510    NaN              NaN              NaN    NaN    59.072     6.593      40.660
+ 7.500   61    0.612     0.483    NaN              NaN            0.701    NaN    50.850     6.123      40.000
+ 7.800   60    8.411     2.282  1.928              NaN           11.299    NaN    68.216     6.301      41.863
+ 7.900   60    4.670     2.839    NaN              NaN           27.090    NaN    86.529     7.302      39.811
+ 8.100   61    2.471     2.771    NaN              NaN           14.296    NaN    87.250     7.739      35.573
+ 8.500   60    2.353     0.910    NaN              NaN           21.158    NaN    88.244     8.116      16.322
+ 8.800   61    1.900     2.429    NaN           36.601              NaN    NaN    88.073     5.581      43.629
+ 9.200   60    0.901     3.600    NaN            9.927              NaN    NaN    84.564     4.169      44.528
+ 9.400   61    0.676     1.930    NaN           10.253              NaN    NaN    84.888     4.378      39.853
+ 9.600   60    2.086     1.375    NaN           10.842              NaN    NaN    85.099     4.274      25.448
+ 9.800   60    2.171     0.942    NaN              NaN              NaN    NaN    85.596     4.054      16.825
+ 9.900   61    1.572     0.633    NaN              NaN              NaN    NaN    84.742     3.696       9.823
+10.200   60    2.896     2.308    NaN              NaN           38.053    NaN    84.022     3.364      37.956
+10.500   60   11.395     5.996  0.463              NaN            9.138    NaN    84.051     5.182      44.804
+10.700   60   12.068     6.527    NaN              NaN              NaN    NaN    85.171     5.474      51.555
+10.800 5631   13.668     4.645  0.152           16.538            3.618 12.921    69.820     6.552      38.351
+
+--- Сопоставление gain / ROT-вариация / RPM с тяжестью состояния ---
+corr(gain, h_s):            +0.092
+corr(rot_std, h_s):         +0.539
+corr(rpm_mean, h_s):        +0.565  (нагрузка двигателя vs шторм)
+corr(sog_mean, rpm_mean):   -0.045  (скорость vs RPM)
+corr(sog_mean, h_s):        -0.494  (скорость падает со штормом)
+corr(asym, h_s):            +nan  (асимметрия ROT по направлению поворота vs шторм)
+
+==============================================================================
+3. Глобальные корреляции RPM / сопротивления
+==============================================================================
+corr(RPM, h_s):                +0.117
+corr(RPM, SOG):                +0.094
+corr(SOG, Wind.Force Summary): -0.254
+corr(|ROT|, |sin(КУ волны)|):  -0.188
