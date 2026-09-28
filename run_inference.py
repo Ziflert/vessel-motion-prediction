@@ -729,6 +729,7 @@ def main():
             df,
             cyclic=eng['cyclic_encoding'],
             relative_wave_angle=eng['relative_wave_angle'],
+            relative_wind_angle=eng.get('relative_wind_angle', True),
         )
         print(f"  ✓ Feature engineering applied: {eng}")
     else:

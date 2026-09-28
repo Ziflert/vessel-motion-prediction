@@ -21,6 +21,7 @@
 | Какая версия модели выбрать | `models_archive/experiments.csv` (CSV) или панель «Реестр» (кнопка В production) |
 | Онлайн-система (playback/live/аномалии/дообучение) | `docs/ONLINE_SYSTEM_PLAN.md` (план §10 — прогресс), `docs/ONLINE_BUILD_LOG.md` (журнал сборки), `docs/ONLINE_DECISIONS.md` (решения ±) |
 | Сбор данных с Transas (план, N1/B1) | `docs/TRANSAS_DATA_COLLECTION_PLAN.md` (сетка Ω, формат каналов, маркеры, экспорт, валидация) |
+| Минимальный датасет/профиль (необходимый минимум) | `docs/MINIMAL_DATASET.md` (обоснование), `scripts/make_minimal_dataset.py`, профиль `minimal_prediction` |
 | Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
 | Куда идём дальше (идеи/roadmap LSTM) | `IDEAS.md` (статус D1–D4, приоритеты) |
 | Конкретный прогон | `models_archive/<run_id>/manifest.json` (источник правды) |

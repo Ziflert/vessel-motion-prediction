@@ -226,6 +226,7 @@ def main():
             df,
             cyclic=config.feature_engineering['cyclic_encoding'],
             relative_wave_angle=config.feature_engineering['relative_wave_angle'],
+            relative_wind_angle=config.feature_engineering['relative_wind_angle'],
         )
         print(f"  Feature engineering applied: {config.feature_engineering}")
         print(f"  Columns after engineering: {len(df.columns)}")
@@ -264,7 +265,8 @@ def main():
         if config.feature_engineering:
             syn = engineer_features_dataframe(
                 syn, cyclic=config.feature_engineering['cyclic_encoding'],
-                relative_wave_angle=config.feature_engineering['relative_wave_angle'])
+                relative_wave_angle=config.feature_engineering['relative_wave_angle'],
+                relative_wind_angle=config.feature_engineering['relative_wind_angle'])
         train_segments = [syn]
         print(f"  ⚡ TRAIN = SYNTHETIC: {len(syn)} rows from {args.train_synthetic_csv}")
 
@@ -274,7 +276,8 @@ def main():
         if config.feature_engineering:
             syn = engineer_features_dataframe(
                 syn, cyclic=config.feature_engineering['cyclic_encoding'],
-                relative_wave_angle=config.feature_engineering['relative_wave_angle'])
+                relative_wave_angle=config.feature_engineering['relative_wave_angle'],
+                relative_wind_angle=config.feature_engineering['relative_wind_angle'])
         if args.extra_train_rows is not None:
             syn = syn.iloc[:args.extra_train_rows]
         extra_train_segments = [syn]

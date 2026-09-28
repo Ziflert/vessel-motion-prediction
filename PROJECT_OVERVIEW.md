@@ -57,6 +57,7 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 | `scripts/` | рабочие: sweep, horizon_sweep, horizon_report, article_figures, generate_synthetic_data, analyze_real_data, evaluate_regimes, rolling_eval, learning_curve_report, fix_stale_runs |
 | `scripts/archive/` | одноразовые/легаси-скрипты (выполнены): patch_draft_ru, migrate_models_archive, compare_models, diagnose, check_data |
 | `run_training.py` / `run_inference.py` | CLI обучения / интерактивного прогноза |
+| `data/raw/your_data_minimal.csv` + `docs/MINIMAL_DATASET.md` | минимальный датасет (17 колонок, КУ wind/wave) + профиль `minimal_prediction` |
 | `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур, панель управления (`docs/ONLINE_SYSTEM_PLAN.md`) |
 | `docs/` | онлайн-документы (ONLINE_*), `TASKS_history.txt`, `history/` (исторические + `history/legacy_notes/`) |
 | `results/` | `sweep/`, `article/`, `learning_curve/`, `regimes/<run>/`, `rolling/<run>/`, `snapshots/`, `archive/` (легаси) |

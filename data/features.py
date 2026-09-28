@@ -38,7 +38,8 @@ def _is_cyclic(col: str) -> bool:
     return any(col == f'{base}(градусы)' or col.startswith(base + '(') for base in CYCLIC_ANGLE_BASES)
 
 
-def engineer_feature_columns(feature_columns, cyclic: bool = True, relative_wave_angle: bool = True):
+def engineer_feature_columns(feature_columns, cyclic: bool = True, relative_wave_angle: bool = True,
+                             relative_wind_angle: bool = True):
     """
     Преобразует список ИСХОДНЫХ имён признаков в список итоговых
     (после инженерии). Зеркально повторяет то, что делает
@@ -62,6 +63,14 @@ def engineer_feature_columns(feature_columns, cyclic: bool = True, relative_wave
             if name not in out:
                 out.append(name)
 
+    if relative_wind_angle and any(c.startswith('Wind.direction') for c in feature_columns) and has_course:
+        # Относительный угол ветра (Wind.direction - Course): важен КУСОВОЙ УГОЛ,
+        # под которым ветер наваливается на корпус, а не абсолютное направление
+        for suffix in ('(sin)', '(cos)'):
+            name = f'Rel.Wind.angle{suffix}'
+            if name not in out:
+                out.append(name)
+
     # Убираем дубликаты с сохранением порядка
     seen = set()
     result = []
@@ -73,7 +82,8 @@ def engineer_feature_columns(feature_columns, cyclic: bool = True, relative_wave
 
 
 def engineer_features_dataframe(df: pd.DataFrame, cyclic: bool = True,
-                                relative_wave_angle: bool = True) -> pd.DataFrame:
+                                relative_wave_angle: bool = True,
+                                relative_wind_angle: bool = True) -> pd.DataFrame:
     """
     Применяет инженерию к DataFrame:
     1. Циклические углы (0..360) -> пара sin/cos (радианы), исходная колонка удаляется.
@@ -87,9 +97,12 @@ def engineer_features_dataframe(df: pd.DataFrame, cyclic: bool = True,
 
     wave_dir_col = wave_dir_base = None
     course_col = course_base = None
+    wind_dir_col = wind_dir_base = None
     for col in df.columns:
         if col.startswith('Wave.direction'):
             wave_dir_col, wave_dir_base = col, col.rsplit('(', 1)[0]
+        elif col.startswith('Wind.direction'):
+            wind_dir_col, wind_dir_base = col, col.rsplit('(', 1)[0]
         elif col.startswith('Course'):
             course_col, course_base = col, col.rsplit('(', 1)[0]
 
@@ -114,6 +127,20 @@ def engineer_features_dataframe(df: pd.DataFrame, cyclic: bool = True,
         rel_rad = np.deg2rad(rel)
         df['Rel.Wave.angle(sin)'] = np.sin(rel_rad)
         df['Rel.Wave.angle(cos)'] = np.cos(rel_rad)
+
+    # Относительный угол ветра (Wind.direction - Course) — КУСОВОЙ УГОЛ ветра
+    # (используем исходные значения, захваченные ДО циклической кодировки; если они
+    # уже удалены — восстанавливаем угол из пары sin/cos)
+    if relative_wind_angle and wind_dir_base is not None and course_base is not None:
+        if wind_dir_col in df.columns and course_col in df.columns:
+            relw = circular_diff(df[wind_dir_col].values, df[course_col].values)
+        else:
+            wd = _angle_from_components(df, wind_dir_base)
+            cs = _angle_from_components(df, course_base)
+            relw = circular_diff(wd, cs)
+        relw_rad = np.deg2rad(relw)
+        df['Rel.Wind.angle(sin)'] = np.sin(relw_rad)
+        df['Rel.Wind.angle(cos)'] = np.cos(relw_rad)
 
     return df
 

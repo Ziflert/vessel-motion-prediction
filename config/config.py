@@ -29,6 +29,9 @@ class Config:
     cyclic_encoding: bool = True
     # Добавляется относительный угол встречи волны (Wave.direction - Course) как sin/cos
     relative_wave_angle: bool = True
+    # Добавляется относительный угол ветра (Wind.direction - Course) как sin/cos
+    # (КУСОВОЙ УГОЛ: под каким углом ветер наваливается на корпус, а не абсолютное направление)
+    relative_wind_angle: bool = True
     # Печатать баннер конфигурации при создании (отключается при программной загрузке)
     verbose: bool = True
 
@@ -279,6 +282,42 @@ class Config:
                     'SOG(узлы)': 1.0,
                 }
             },
+
+            # НЕОБХОДИМЫЙ МИНИМУМ (вопрос заказчика 2026-09-28): минимум параметров,
+            # без координат/дубликатов/вычисленных эффектов. Направления ветра/волнения
+            # в нейросеть НЕ подаются как абсолютные — считаются КУСОВЫЕ УГЛЫ
+            # (Wave/Wind.direction − Course, sin/cos; data/features.py).
+            # Датасет: data/raw/your_data_minimal.csv (17 колонок — scripts/make_minimal_dataset.py).
+            'minimal_prediction': {
+                'features': MOTION_STATE + ['SOG(узлы)', 'ROT(°/мин)', 'Course(градусы)']
+                            + CONTROL_FEATURES
+                            + ['Wave.Highest(метры)', 'Wave.speed(узлы)', 'Wind.Force Summary(тс)']
+                            + ['Wave.direction(градусы)', 'Wind.direction(градусы)'],
+                'targets': [
+                    # Качка
+                    'Pitch(градусы)',
+                    'Roll(градусы)',
+                    'Vertical(Метр)',
+                    'Velocity.Pitching(°/мин)',
+                    'Velocity.Rolling(°/мин)',
+                    'Velocity.Vertical(узлы)',
+                    # Навигация
+                    'ROT(°/мин)',
+                    'SOG(узлы)',
+                ],
+                'weights': {
+                    # Качка
+                    'Pitch(градусы)': 1.0,
+                    'Roll(градусы)': 2.0,  # Самое важное
+                    'Vertical(Метр)': 1.5,
+                    'Velocity.Pitching(°/мин)': 0.8,
+                    'Velocity.Rolling(°/мин)': 1.2,
+                    'Velocity.Vertical(узлы)': 0.8,
+                    # Навигация
+                    'ROT(°/мин)': 1.5,
+                    'SOG(узлы)': 1.0,
+                }
+            },
         }
 
         if profile_name not in profiles:
@@ -338,10 +377,12 @@ class Config:
                 self.feature_columns,
                 cyclic=self.cyclic_encoding,
                 relative_wave_angle=self.relative_wave_angle,
+                relative_wind_angle=self.relative_wind_angle,
             )
             self.feature_engineering = {
                 'cyclic_encoding': self.cyclic_encoding,
                 'relative_wave_angle': self.relative_wave_angle,
+                'relative_wind_angle': self.relative_wind_angle,
             }
 
         if not self.verbose:
@@ -363,7 +404,8 @@ class Config:
         print(f"\n🌤️  INPUT FEATURES ({len(self.feature_columns)} variables):")
         if self.feature_engineering:
             print(f"   Feature engineering: cyclic sin/cos = {self.feature_engineering['cyclic_encoding']}, "
-                  f"relative wave angle = {self.feature_engineering['relative_wave_angle']}")
+                  f"relative wave angle = {self.feature_engineering['relative_wave_angle']}, "
+                  f"relative wind angle = {self.feature_engineering['relative_wind_angle']}")
         # Группируем признаки
         weather = [f for f in self.feature_columns if any(x in f for x in ['Swell', 'Wave', 'Wind', 'Current'])]
         control = [f for f in self.feature_columns if any(x in f for x in ['Rudder', 'RPM'])]
