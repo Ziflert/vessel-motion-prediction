@@ -20,6 +20,7 @@
 | Какая версия модели выбрать | `models_archive/experiments.csv` (CSV) или `python model_manager.py list` |
 | Онлайн-система (playback/live/аномалии/дообучение) | `docs/ONLINE_SYSTEM_PLAN.md` (план §10 — прогресс), `docs/ONLINE_BUILD_LOG.md` (журнал сборки), `docs/ONLINE_DECISIONS.md` (решения ±) |
 | Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
+| Куда идём дальше (идеи/roadmap LSTM) | `IDEAS.md` (статус D1–D4, приоритеты) |
 | Конкретный прогон | `models_archive/<run_id>/manifest.json` (источник правды) |
 | Статьи по теме | `/d/Temprary/research-article/analysis/` (карточки), `notes/web-lstm-articles.md` |
 | Черновик статьи | `/d/Temprary/research-article/draft-article/` |
