@@ -134,6 +134,9 @@ def main():
                         help='Вес smoothness-компоненты loss')
     parser.add_argument('--no-attention', action='store_true',
                         help='Отключить attention в декодере')
+    parser.add_argument('--prediction-horizon', type=int, default=None,
+                        help='Переопределить горизонт прогноза в шагах '
+                             '(A3: матрица горизонтов 10/20/30; меняет окна датасета и выход декодера)')
     parser.add_argument('--profile', type=str, default=None,
                          help='Профиль обучения (motion_prediction | motion_core_prediction | '
                               'rot_prediction | speed_prediction | full_prediction); '
@@ -164,6 +167,8 @@ def main():
         config.loss_weights = lw
     if args.no_attention:
         config.use_attention = False
+    if args.prediction_horizon is not None:
+        config.prediction_horizon = args.prediction_horizon
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     random.seed(config.seed)

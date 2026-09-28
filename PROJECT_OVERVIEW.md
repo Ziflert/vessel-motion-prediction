@@ -41,7 +41,7 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 | `USAGE.md` | Как запускать (обучение/inference/анализ) |
 | `RESEARCH_LOG.md` | Журнал: методика, результаты, ошибки, выводы (читать §5–7) |
 | `registry.py`, `models_archive/experiments.csv` | Версионирование прогонов (manifest.json — источник правды; чекпоинты НЕ в git) |
-| `scripts/` | рабочие: sweep, article_figures, generate_synthetic_data, analyze_real_data, evaluate_regimes, rolling_eval, learning_curve_report, fix_stale_runs |
+| `scripts/` | рабочие: sweep, horizon_sweep, horizon_report, article_figures, generate_synthetic_data, analyze_real_data, evaluate_regimes, rolling_eval, learning_curve_report, fix_stale_runs |
 | `scripts/archive/` | одноразовые/легаси-скрипты (выполнены): patch_draft_ru, migrate_models_archive, compare_models, diagnose, check_data |
 | `run_training.py` / `run_inference.py` | CLI обучения / интерактивного прогноза |
 | `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур, панель управления (`docs/ONLINE_SYSTEM_PLAN.md`) |
@@ -51,6 +51,6 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 ## Открытые задачи (приоритет)
 
 1. ~~Мультисид (A1)~~ — ✅ 2026-09-28, см. RESEARCH_LOG §5.5.1; журнальные рисунки (A2) — ✅ `results/article/figs/`.
-2. A3: матрица горизонтов прогноза 10/20/30 (кривая «ошибка от упреждения» — ключевой график для СППР).
+2. ~~A3: матрица горизонтов 10/20/30~~ — ✅ 2026-09-28, RESEARCH_LOG §5.6 (`results/horizons/`, fig6/fig7 в article/figs): упреждение до ~10 с уверенное (Skill +0.60), дальше ошибка и дисперсия растут — аргумент за MC-Dropout (C4).
 3. Метрика покрытия Ω (полнота базы в похожих условиях → ожидаемая ошибка).
 4. Протокол записи для Transas 4000; статья (10–15 источников, чистовая версия).
