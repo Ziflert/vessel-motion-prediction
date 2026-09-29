@@ -30,7 +30,10 @@ from matplotlib.lines import Line2D
 
 import registry as reg
 
+import argparse
+
 OUT = PROJECT_ROOT / 'results' / 'article' / 'figs'
+OUT_NEW = PROJECT_ROOT / 'results' / 'article' / 'figs_v2'
 
 # --- журнальный стиль ---
 plt.rcParams.update({
@@ -54,18 +57,26 @@ C_GREY = '#7f7f7f'
 
 
 def save(fig, name):
-    OUT.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT / f'{name}.png')
-    fig.savefig(OUT / f'{name}.pdf')
+    out_dir = OUT if _use_old else OUT_NEW
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_dir / f'{name}.png')
+    fig.savefig(out_dir / f'{name}.pdf')
     plt.close(fig)
-    print(f'  ✓ {name}.png/.pdf')
+    print(f'  ✓ {name}.png/.pdf -> {out_dir.name}/')
+
+
+_use_old = True  # переключается в main (--new-pipeline)
 
 
 # ----------------------------------------------------------------------------
-def fig1_learning_curve():
-    df = pd.read_csv(PROJECT_ROOT / 'results/learning_curve/e1_aggregated.csv')
+def fig1_learning_curve(new=False):
+    src = (PROJECT_ROOT / 'results/learning_curve/e1_aggregated.csv' if not new
+           else PROJECT_ROOT / 'results/learning_curve_f1/f1_aggregated.csv')
+    df = pd.read_csv(src)
     n = df['n_train_rows'].values.astype(float)
     mae, std = df['mae_mean'].values, df['mae_std'].values
+    label = ('E1: mean ± std (2 сида)' if not new
+             else 'Ф1: mean ± std (3 сида, минимальный пайплайн, ПОЛНАЯ запись)')
 
     # степенной закон MAE = a * n^b (fit по логам, по средним)
     b, loga = np.polyfit(np.log(n), np.log(mae), 1)
@@ -74,7 +85,7 @@ def fig1_learning_curve():
 
     fig, ax = plt.subplots(figsize=(4.5, 3.4))
     ax.errorbar(n, mae, yerr=std, fmt='o', color=C_MAIN, capsize=3,
-                label='E1: mean ± std (2 сида)')
+                label=label)
     ax.plot(nfit, a * nfit ** b, '--', color=C_ACCENT,
             label=f'степенной закон: {a:.1f}·n^({b:.2f})')
     ax.set_xscale('log')
@@ -91,12 +102,12 @@ def fig1_learning_curve():
 
 
 # ----------------------------------------------------------------------------
-def sweep_collect():
-    """Мультисид-агрегация SWEEP + baseline из реестра (mean±std по сидам)."""
+def sweep_collect(prefix='SWEEP'):
+    """Мультисид-агрегация <prefix> + baseline из реестра (mean±std по сидам)."""
     rows = []
     for run in reg.list_runs():
         m = run['manifest']
-        if not m or not (m.get('hypothesis') or '').startswith(('SWEEP', 'E1 ')):
+        if not m or not (m.get('hypothesis') or '').startswith((prefix, 'E1 ')):
             continue
         notes = m['hypothesis']
         phys = m.get('results', {}).get('physical', {})
@@ -105,7 +116,7 @@ def sweep_collect():
         if mae is None:
             continue
         seed = m.get('training', {}).get('seed') or 42
-        if notes.startswith('SWEEP'):
+        if notes.startswith(prefix):
             parts = notes.split()
             variant, k = parts[1], int(parts[2].split('=')[1])
         else:
@@ -116,8 +127,8 @@ def sweep_collect():
     return agg
 
 
-def fig2_sweep():
-    agg = sweep_collect()
+def fig2_sweep(new=False):
+    agg = sweep_collect('F3' if new else 'SWEEP')
     order = ['smooth0', 'huber0', 'roll_w4', 'lr2e-4', 'baseline', 'no-attn', 'roll_w0.5']
     ks = sorted(agg['K'].unique())
     title_let = {'2': 'а', '9': 'б'}
@@ -161,16 +172,40 @@ def fig2_sweep():
 
 
 # ----------------------------------------------------------------------------
-def fig3_per_target():
-    df = pd.read_csv(PROJECT_ROOT / 'results/learning_curve/all_study_runs.csv')
-    df['per_target_mae'] = df['per_target_mae'].apply(ast.literal_eval)
-
-    cond = {
-        'Реал 700': (df['exp'] == 'E1') & (df['n_train_rows'] == 700),
-        'Реал 5949': (df['exp'] == 'E1') & (df['n_train_rows'] == 5949),
-        'Синтетика 30k': (df['exp'] == 'E2') & df['notes'].str.contains('30k'),
-        '700+17.5k син.': (df['exp'] == 'E3') & df['notes'].str.contains('17500'),
-    }
+def fig3_per_target(new=False):
+    if new:
+        # Новый пайплайн (Ф1/Ф2): Реал 700 vs Реал 5949 vs 5949 без КУ-признаков (ablation Ф2)
+        rows = []
+        for run in reg.list_runs():
+            m = run['manifest']
+            if not m:
+                continue
+            notes = m.get('hypothesis') or ''
+            if not notes.startswith(('F1 ', 'F2 ')):
+                continue
+            phys = m.get('results', {}).get('physical', {})
+            if not phys:
+                continue
+            eng = m['features'].get('feature_engineering') or {}
+            rel = bool(eng.get('relative_wave_angle') and eng.get('relative_wind_angle'))
+            rows.append({'exp': notes.split()[0], 'n': m['data']['rows_train'],
+                         'rel': rel, 'seed': m['training']['seed'],
+                         'per_target_mae': {k: v['mae'] for k, v in phys.get('per_target', {}).items()}})
+        df = pd.DataFrame(rows).drop_duplicates(subset=['exp', 'n', 'rel', 'seed'])
+        cond = {
+            'Реал 700': (df['exp'] == 'F1') & (df['n'] == 700),
+            'Реал 5949': (df['exp'] == 'F1') & (df['n'] == 5949),
+            '5949 без КУ (Ф2)': (df['exp'] == 'F2') & (df['n'] == 5949),
+        }
+    else:
+        df = pd.read_csv(PROJECT_ROOT / 'results/learning_curve/all_study_runs.csv')
+        df['per_target_mae'] = df['per_target_mae'].apply(ast.literal_eval)
+        cond = {
+            'Реал 700': (df['exp'] == 'E1') & (df['n_train_rows'] == 700),
+            'Реал 5949': (df['exp'] == 'E1') & (df['n_train_rows'] == 5949),
+            'Синтетика 30k': (df['exp'] == 'E2') & df['notes'].str.contains('30k'),
+            '700+17.5k син.': (df['exp'] == 'E3') & df['notes'].str.contains('17500'),
+        }
     short = {'Pitch(градусы)': 'Pitch,°', 'Roll(градусы)': 'Roll,°',
              'Vertical(Метр)': 'Vertical,м', 'Velocity.Rolling(°/мин)': 'Vel.Roll,°/мин',
              'ROT(°/мин)': 'ROT,°/мин', 'SOG(узлы)': 'SOG,уз'}
@@ -186,7 +221,8 @@ def fig3_per_target():
     use = [t for t in all_t if t in short]
     x = np.arange(len(use))
     w = 0.2
-    colors = [C_GREY, C_MAIN, '#2ca02c', '#ff7f0e']
+    colors = ([C_GREY, C_MAIN, '#ff7f0e'] if new
+              else [C_GREY, C_MAIN, '#2ca02c', '#ff7f0e'])
 
     fig, ax = plt.subplots(figsize=(9, 3.6))
     for i, (name, series) in enumerate(data.items()):
@@ -196,15 +232,21 @@ def fig3_per_target():
     ax.set_xticks(x)
     ax.set_xticklabels([short[t] for t in use])
     ax.set_ylabel('Test MAE, физ. ед. (агрег. по 8 целям, log)')
-    ax.set_title('г) Ошибка по целям: объём реальных данных vs синтетика vs аугментация')
+    ax.set_title('г) Ошибка по целям: объём реальных данных' +
+                 (' vs без КУ-признаков (ablation Ф2)' if new else
+                  ' vs синтетика vs аугментация'))
     ax.legend(ncol=2, title='Обучающая выборка', title_fontsize=8)
     plt.tight_layout()
     save(fig, 'fig3_per_target')
 
 
 # ----------------------------------------------------------------------------
-def fig4_regimes():
-    src = next((PROJECT_ROOT / 'results').glob('regimes_*/regimes.csv'))
+def fig4_regimes(new=False):
+    if new:
+        # per-regime лучшего прогона Ф1 (k9-s42): лёгкий режим — отдельный режим (Ф0.5)
+        src = next((PROJECT_ROOT / 'results' / 'regimes').glob('20260929-*f1-minimal-k9-s42*/regimes.csv'))
+    else:
+        src = next((PROJECT_ROOT / 'results').glob('regimes_*/regimes.csv'))
     df = pd.read_csv(src)
     df = df[df['regime'] != 'ALL'].sort_values('mae')
     fig, ax = plt.subplots(figsize=(5.5, 3.4))
@@ -219,7 +261,7 @@ def fig4_regimes():
 
 
 # ----------------------------------------------------------------------------
-def fig5_period_drift():
+def fig5_period_drift(new=False):
     """Медианный период качки Roll по чанкам записи: пики через zero-crossing."""
     data_path = PROJECT_ROOT / 'data/raw/your_data.csv'
     try:
@@ -244,9 +286,12 @@ def fig5_period_drift():
     ax.plot(periods_t, periods, 'o-', color=C_MAIN, ms=4,
             label='медианный период качки Roll\n(чанки 700 строк, zero-crossing)')
     ax.axvline(4000, color=C_GREY, ls=':', lw=1,
-               label='строка 4000 — начало активного шторма\n(регион исследования)')
-    ax.annotate('начало активного шторма', (4000, ax.get_ylim()[1] * 0.92),
-                xytext=(5, 0), textcoords='offset points', fontsize=8, color=C_GREY)
+               label=('строка 4000 — граница спокойного/активного региона '
+                      '(оба в обучении, Ф0.5)' if new else
+                      'строка 4000 — начало активного шторма\n(регион исследования)'))
+    if not new:
+        ax.annotate('начало активного шторма', (4000, ax.get_ylim()[1] * 0.92),
+                    xytext=(5, 0), textcoords='offset points', fontsize=8, color=C_GREY)
     ax.set_xlabel('Строка записи (сек при 1 Гц)')
     ax.set_ylabel('Период качки Roll, с (меньше — чаще)')
     ax.set_title('е) Дрейф собственного периода качки по мере развития шторма')
@@ -256,15 +301,23 @@ def fig5_period_drift():
 
 # ----------------------------------------------------------------------------
 def main():
+    global _use_old
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    print('Журнальные рисунки ->', OUT)
-    a, b = fig1_learning_curve()
+    parser = argparse.ArgumentParser(description='Journal figures')
+    parser.add_argument('--new-pipeline', action='store_true',
+                        help='Ф5: перегенерация с прогонов нового пайплайна '
+                             '(Ф1/Ф2/Ф3/Ф4) -> results/article/figs_v2/')
+    args = parser.parse_args()
+    new = args.new_pipeline
+    _use_old = not new
+    print('Журнальные рисунки ->', OUT if _use_old else OUT_NEW)
+    a, b = fig1_learning_curve(new=new)
     print(f'  степенной закон: MAE = {a:.1f}·n^({b:.3f})')
-    fig2_sweep()
-    fig3_per_target()
-    fig4_regimes()
-    fig5_period_drift()
+    fig2_sweep(new=new)
+    fig3_per_target(new=new)
+    fig4_regimes(new=new)
+    fig5_period_drift(new=new)
     print('Готово.')
 
 

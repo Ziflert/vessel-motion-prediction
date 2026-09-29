@@ -24,7 +24,7 @@ import pandas as pd
 import registry as reg
 
 
-def collect():
+def collect(prefix='SWEEP'):
     rows = []
     for run in reg.list_runs():
         m = run['manifest']
@@ -32,11 +32,11 @@ def collect():
             continue
         notes = m.get('hypothesis') or ''
         phys = m.get('results', {}).get('physical', {})
-        if not phys or not notes.startswith(('SWEEP', 'E1 ')):
+        if not phys or not notes.startswith((prefix, 'E1 ')):
             continue
         variant, k = None, None
         seed = (m.get('training') or {}).get('seed') or 42
-        if notes.startswith('SWEEP'):
+        if notes.startswith(prefix):
             parts = notes.split()
             variant, k = parts[1], int(parts[2].split('=')[1])
         else:
@@ -60,9 +60,15 @@ def main():
         except Exception:
             pass
 
-    df = collect()
+    import argparse
+    parser = argparse.ArgumentParser(description='Sweep report')
+    parser.add_argument('--prefix', type=str, default='SWEEP',
+                        help='Префикс notes (SWEEP — старый пайплайн; F3 — новый v2-канон)')
+    prefix = parser.parse_args().prefix
+
+    df = collect(prefix)
     if df.empty:
-        print('Нет прогонов SWEEP/E1')
+        print(f'Нет прогонов {prefix}/E1')
         return
     # мультисид: дедуп по (вариант, K, сид), затем mean±std по сидам
     df = df.drop_duplicates(subset=['variant', 'K', 'seed'], keep='last')
@@ -76,12 +82,14 @@ def main():
             [p for p in ss if p]).mean().to_dict() if any(p for p in ss) else {}),
     ).reset_index()
 
-    out = PROJECT_ROOT / 'results' / 'sweep'
+    out = PROJECT_ROOT / ('results/sweep' if prefix == 'SWEEP' else f'results/sweep_{prefix.lower()}')
     out.mkdir(parents=True, exist_ok=True)
 
+    region_note = ('ПОЛНАЯ запись (Ф0.5), minimal_prediction' if prefix != 'SWEEP'
+                   else 'активный регион')
     lines = ['=' * 88,
-             'SWEEP: влияние коэффициентов на качество прогноза (физические единицы)',
-             'test фиксирован; активный регион; fixed scaler; мультисид mean±std',
+             f'SWEEP ({prefix}): влияние коэффициентов на качество прогноза (физические единицы)',
+             f'test фиксирован; {region_note}; fixed scaler; мультисид mean±std',
              '=' * 88, '']
 
     table_rows, per_target_rows = [], []

@@ -183,12 +183,27 @@ def main():
     parser.add_argument('--init-from', type=str, default=None,
                         help='Путь к run-директории: инициализация весов из её '
                              'checkpoints/best_model.pt (warm start / дообучение)')
+    parser.add_argument('--no-relative-wave-angle', action='store_true',
+                        help='Ф2 ablation: отключить КУ волнения (relative_wave_angle) — '
+                             'абсолютное направление волны без учёта курса')
+    parser.add_argument('--no-relative-wind-angle', action='store_true',
+                        help='Ф2 ablation: отключить КУ ветра (relative_wind_angle) — '
+                             'КУСОВОЙ УГОЛ ветра не подаётся')
     args = parser.parse_args()
 
     start_time = time.time()
 
     # 1. Конфигурация + воспроизводимость + переопределения (для sweep-экспериментов)
-    config = Config(profile=args.profile) if args.profile else Config()
+    # Ф2 ablation: относительные углы отключаются ДО создания Config (feature_columns
+    # считаются в __post_init__ и иначе не пересчитаются)
+    _profile_kwargs = {}
+    if args.profile:
+        _profile_kwargs['profile'] = args.profile
+    if args.no_relative_wave_angle:
+        _profile_kwargs['relative_wave_angle'] = False
+    if args.no_relative_wind_angle:
+        _profile_kwargs['relative_wind_angle'] = False
+    config = Config(**_profile_kwargs)
     if args.seed is not None:
         config.seed = args.seed
     if args.max_epochs is not None:

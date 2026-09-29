@@ -47,9 +47,13 @@ plt.rcParams.update({
     'savefig.bbox': 'tight',
 })
 
-VARIANT_LABEL = {
+VARIANT_LABEL_OLD = {
     'baseline': 'baseline (MSE + 0.5·Huber + 0.1·smooth, Roll=2)',
     'smooth0': 'smooth0 (без гладкости, MSE + 0.5·Huber, Roll=2)',
+}
+VARIANT_LABEL_NEW = {
+    'baseline': 'baseline (MSE + 0.5·Huber + 0.1·smooth, Roll=2)',
+    'roll_w4': 'roll_w4 (лучший свип Ф3: Roll=4)',
 }
 H_COLOR = {10: '#1f77b4', 20: '#d62728', 30: '#2ca02c'}
 H_MARKER = {10: 'o', 20: 's', 30: '^'}
@@ -76,7 +80,7 @@ def save(fig, out_dir, name, also_article=False):
     print(f'  ✓ {name}.png/.pdf' + (' (+ article/figs)' if also_article else ''))
 
 
-def collect():
+def collect(prefix='HORIZON'):
     rows = []
     for run in reg.list_runs():
         m = run['manifest']
@@ -84,14 +88,23 @@ def collect():
             continue
         notes = m.get('hypothesis') or ''
         variant, h = None, None
-        if notes.startswith('HORIZON'):
+        if notes.startswith(prefix):
             parts = notes.split()
             variant, h = parts[1], int(parts[2].split('=')[1])
-        elif notes.startswith('SWEEP'):
+        elif prefix == 'HORIZON' and notes.startswith('SWEEP'):
             parts = notes.split()
             k = int(parts[2].split('=')[1])
             if k == 9:  # полная выборка = те же условия при H=20 (мультисид A1)
                 variant, h = parts[1], 20
+        elif prefix == 'F4' and notes.startswith('F3 '):
+            # H=20 переиспользуется из Ф3 (только варианты Ф4: baseline, roll_w4)
+            parts = notes.split()
+            k = int(parts[2].split('=')[1])
+            if k == 9 and parts[1] in ('baseline', 'roll_w4'):
+                variant, h = parts[1], 20
+        elif prefix == 'F4' and notes.startswith('F1 minimal k9'):
+            # H=20 baseline переиспользуется из Ф1 (3 сида)
+            variant, h = 'baseline', 20
         if variant is None:
             continue
         res = m.get('results', {})
@@ -119,10 +132,20 @@ def main():
         except Exception:
             pass
 
-    df = collect()
+    import argparse
+    parser = argparse.ArgumentParser(description='Horizon matrix report')
+    parser.add_argument('--prefix', type=str, default='HORIZON',
+                        help='Префикс notes (HORIZON — старый пайплайн; F4 — новый v2-канон)')
+    prefix = parser.parse_args().prefix
+
+    df = collect(prefix)
     if df.empty:
-        print('Нет прогонов HORIZON/SWEEP(K=9)')
+        print(f'Нет прогонов {prefix}/легаси')
         return
+
+    vlabel = VARIANT_LABEL_OLD if prefix == 'HORIZON' else VARIANT_LABEL_NEW
+    if prefix != 'HORIZON':
+        OUT = PROJECT_ROOT / f'results/horizons_{prefix.lower()}'
 
     # дедуп (та же политика, что sweep_report: keep='last' — согласовно с агрегатом A1)
     df = df.drop_duplicates(subset=['variant', 'H', 'seed'], keep='last')
@@ -158,7 +181,7 @@ def main():
     curve.to_csv(OUT / 'horizon_curve.csv', index=False)
 
     # ================= FIG6: кривая «ошибка от упреждения» =================
-    variants = list(VARIANT_LABEL.keys())
+    variants = list(vlabel.keys())
     fig, axes = plt.subplots(1, len(variants), figsize=(9.0, 3.6), sharey=True)
     for ax, v in zip(axes, variants):
         for h in [10, 20, 30]:
@@ -177,14 +200,14 @@ def main():
             ax.plot(sub0['lead_s'], sub0['persist_mean'], color='#7f7f7f', ls='--', lw=1.2,
                     label='persistence (наивный)')
         ax.set_xlabel('Упреждение, с (1 Гц)')
-        ax.set_title(VARIANT_LABEL[v], fontsize=9)
+        ax.set_title(vlabel[v], fontsize=9)
         ax.set_xticks([1, 5, 10, 15, 20, 25, 30])
         ax.legend(loc='upper left', framealpha=0.9)
     axes[0].set_ylabel('MAE (физ. ед., все цели)')
     fig.suptitle('Кривая «ошибка от упреждения»: матрица горизонтов 10/20/30 '
                  '(K=9 ≈ 5949 строк, mean±std по 3 сидам)', fontsize=10)
     fig.tight_layout(rect=[0, 0, 1, 0.94])
-    save(fig, OUT, 'fig6_horizon_curve', also_article=True)
+    save(fig, OUT, 'fig6_horizon_curve', also_article=(prefix == 'HORIZON'))
 
     # ================= FIG7: цена горизонта (overall) =================
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.0, 3.4))
@@ -194,14 +217,14 @@ def main():
         sub = agg[agg['variant'] == v].set_index('H').reindex([10, 20, 30])
         offs = (j - 0.5) * w
         ax1.bar(x + offs, sub['mae'], w, yerr=sub['mae_std'], capsize=3,
-                color=['#1f77b4', '#d62728'][j], alpha=0.85,
-                label=VARIANT_LABEL[v].split('(')[0].strip())
+                color=['#1f77b4', '#d62728', '#2ca02c'][j % 3], alpha=0.85,
+                label=vlabel[v].split('(')[0].strip())
         for xi, (mae, sk) in zip(x + offs, zip(sub['mae'], sub['skill'])):
             if np.isfinite(sk):
                 ax1.annotate(f'S={sk:.2f}', (xi, mae), textcoords='offset points',
                              xytext=(0, 4 + (3 if j else 0)), ha='center', fontsize=7)
         ax2.bar(x + offs, sub['skill'], w, yerr=sub['skill_std'], capsize=3,
-                color=['#1f77b4', '#d62728'][j], alpha=0.85)
+                color=['#1f77b4', '#d62728', '#2ca02c'][j % 3], alpha=0.85)
     ax1.set_xticks(x); ax1.set_xticklabels(['H=10', 'H=20', 'H=30'])
     ax1.set_ylabel('MAE (физ. ед., усреднено по горизонту)')
     ax1.set_xlabel('Горизонт прогноза')
@@ -211,21 +234,26 @@ def main():
     ax2.set_xlabel('Горизонт прогноза')
     ax2.axhline(0, color='#7f7f7f', lw=0.8)
     fig.suptitle('Цена горизонта: overall-качество на 10/20/30 шагов упреждения '
-                 '(K=9, mean±std по 3 сидам)', fontsize=10)
+                 f'({"Ф4, минимальный пайплайн" if prefix != "HORIZON" else "K=9"}, mean±std по 3 сидам)', fontsize=10)
     fig.tight_layout(rect=[0, 0, 1, 0.93])
-    save(fig, OUT, 'fig7_horizon_overall', also_article=True)
+    save(fig, OUT, 'fig7_horizon_overall', also_article=(prefix == 'HORIZON'))
 
     # ================= Текстовый отчёт =================
+    conditions_note = (
+        'ПОЛНАЯ запись (Ф0.5), minimal_prediction, fixed scaler, subset-seed 123, '
+        '≤100 эпох; 1 Гц (1 шаг упреждения = 1 с); mean±std по 3 сидам {42,43,44}. '
+        'H=20 переиспользованы из Ф1/Ф3.' if prefix != 'HORIZON' else
+        'K=9 сегментов (~5949 строк), skip-rows 4000, fixed scaler, subset-seed 123, '
+        '≤100 эпох; 1 Гц (1 шаг упреждения = 1 с); mean±std по 3 сидам {42,43,44}. '
+        'Прогоны H=20 переиспользованы из мультисида A1 (SWEEP <v> K=9 seed<s>).')
     lines = [
         '=' * 78,
         'A3 — МАТРИЦА ГОРИЗОНТОВ ПРОГНОЗА 10/20/30 (кривая «ошибка от упреждения»)',
         '=' * 78, '',
-        'Условия: K=9 сегментов (~5949 строк), skip-rows 4000, fixed scaler, subset-seed 123,',
-        '≤100 эпох; 1 Гц (1 шаг упреждения = 1 с); mean±std по 3 сидам {42,43,44}.',
-        'Прогоны H=20 переиспользованы из мультисида A1 (SWEEP <v> K=9 seed<s>).', '',
+        f'Условия: {conditions_note}', '',
     ]
     for v in variants:
-        lines += [f'--- {VARIANT_LABEL[v]} ---']
+        lines += [f'--- {vlabel[v]} ---']
         for _, r in agg[agg['variant'] == v].iterrows():
             lines.append(
                 f"H={int(r['H']):>2}: MAE {r['mae']:.2f} ± {r['mae_std']:.2f}   "

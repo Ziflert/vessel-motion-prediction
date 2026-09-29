@@ -39,14 +39,15 @@ GRID = [
 SIZES = [2, 9]  # число train-сегментов (см. RESEARCH_LOG §3)
 
 
-def run_name(variant: str, k: int) -> str:
-    return f'SWEEP {variant} K={k}'
+def run_name(variant: str, k: int, prefix: str = 'SWEEP') -> str:
+    return f'{prefix} {variant} K={k}'
 
 
-def already_done(variant: str, k: int) -> bool:
+def already_done(variant: str, k: int, prefix: str = 'SWEEP', seed: int = None) -> bool:
+    head = f'{prefix} {variant} K={k}' + (f' seed{seed}' if seed is not None else '')
     for run in reg.list_runs():
         m = run['manifest']
-        if m and (m.get('hypothesis') or '') == run_name(variant, k):
+        if m and ((m.get('hypothesis') or '').startswith(head)):
             return True
     return False
 
@@ -62,28 +63,37 @@ def main():
     parser.add_argument('--only', type=str, default=None,
                         help='Запятая-список имён вариантов (по умолчанию вся сетка)')
     parser.add_argument('--seeds', type=str, default='42')
+    parser.add_argument('--prefix', type=str, default='SWEEP',
+                        help='Префикс notes (SWEEP — старый пайплайн; F3 — новый v2-канон)')
+    parser.add_argument('--data-minimal', action='store_true',
+                        help='Новый пайплайн: ПОЛНАЯ запись your_data_minimal.csv + '
+                             'профиль minimal_prediction (вместо skip-rows 4000)')
     args = parser.parse_args()
+    prefix = args.prefix
 
     variants = GRID if not args.only else [g for g in GRID if g['name'] in args.only.split(',')]
     seeds = [int(s) for s in args.seeds.split(',')]
 
     total = len(variants) * len(SIZES) * len(seeds)
-    print(f'Сетка: {len(variants)} вариантов × размеры {SIZES} × сиды {seeds} = {total} прогонов')
+    print(f'Сетка: {len(variants)} вариантов × размеры {SIZES} × сиды {seeds} = {total} прогонов '
+          f'(пайплайн: {"v2-канон minimal" if args.data_minimal else "старый skip-rows 4000"})')
     done = skipped = 0
 
     for k in SIZES:
         for seed in seeds:
             for v in variants:
-                if already_done(v['name'], k) and seed == 42:
+                if already_done(v['name'], k, prefix, seed):
                     print(f'-- skip (уже есть): {v["name"]} K={k}')
                     skipped += 1
                     continue
-                cmd = [PYTHON, 'run_training.py',
-                       '--skip-rows', '4000',
-                       '--train-segments', str(k), '--subset-seed', '123',
-                       '--fixed-scaler', '--max-epochs', '100',
-                       '--seed', str(seed),
-                       '--notes', f'{run_name(v["name"], k)} seed{seed}'] + v['args']
+                data_flags = (['--data-path', 'data/raw/your_data_minimal.csv',
+                               '--profile', 'minimal_prediction'] if args.data_minimal
+                              else ['--skip-rows', '4000'])
+                cmd = ([PYTHON, 'run_training.py'] + data_flags +
+                       ['--train-segments', str(k), '--subset-seed', '123',
+                        '--fixed-scaler', '--max-epochs', '100',
+                        '--seed', str(seed),
+                        '--notes', f'{run_name(v["name"], k, prefix)} seed{seed}'] + v['args'])
                 print(f'>>> {v["name"]} K={k} seed={seed}')
                 r = subprocess.run(cmd, cwd=PROJECT_ROOT)
                 if r.returncode != 0:
