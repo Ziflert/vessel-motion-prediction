@@ -13,6 +13,7 @@
 
 | Вопрос / задача | Что открыть |
 |---|---|
+| Правила работы ИИ/агентов, скилы | `AGENTS.md` (в корне; pi грузит автоматически) + скил `vessel-project` (`.pi/skills/`, форс: `/skill:vessel-project`) |
 | Быстрый старт/что где нажимать | `README.md` (лендинг) |
 | Как запустить обучение/inference/анализ | `USAGE.md` (целиком, ~200 строк) |
 | Параметры модели/профиля | `config/config.py` (только поля dataclass + `get_profile_config`) |
@@ -24,6 +25,7 @@
 | Минимальный датасет/профиль (необходимый минимум) | `docs/MINIMAL_DATASET.md` (обоснование), `scripts/make_minimal_dataset.py`, профиль `minimal_prediction` |
 | Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
 | Куда идём дальше (идеи/roadmap LSTM) | `IDEAS.md` (статус D1–D4, приоритеты) |
+| План статьи (N2/N3): структура, файлы, источники | `docs/ARTICLE_PLAN.md` (v1.0) |
 | Конкретный прогон | `models_archive/<run_id>/manifest.json` (источник правды) |
 | Статьи по теме — где что лежит | см. блок «Научные работы» ниже |
 | Черновик статьи | `/d/Temprary/research-article/draft-article/` |

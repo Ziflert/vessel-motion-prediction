@@ -912,3 +912,66 @@ N5 G1 (H=120) → N10 G2 (Ω) → ...
 Актуальные результаты — только текущий канон: `results/article/figs_v2/`, `results/horizons_f4/`,
 `results/sweep_f3/`, `results/learning_curve_f1/`. История старого канона — `archive/` и
 `docs/history/` (точечно).
+
+### Сессия 2026-09-29 (часть 3 — N2/N3 ревизия статьи, версия 1.1)
+**Claim–evidence сверка чистовой статьи (`docs/ARTICLE_DRAFT_RU.md` = `article_v3_ru.md`) с источниками:**
+- §5.1 learning curve ↔ `results/learning_curve_f1/learning_curve_report.txt`: совпадает (9.721/9.216/10.412/6.526; SD 0.887/0.371/0.733; R²/skill совпадают) ✓
+- §5.3 свип ↔ `results/sweep_f3/sweep_report.txt`: все 8 строк таблицы совпадают ✓
+- §5.4 production ↔ manifest `20260929-042516-f3-roll_w4-k-9-seed42-3900`: MAE 6.025, RMSE 19.094, R² 0.652, per-target — совпадают ✓
+- §5.5 режимы ↔ `results/regimes/20260929-035843-f1-minimal-k9-s42-3900/report.txt`: light 1.369/rough 4.728/severe 9.820, окна 2360/640/4200, head 9.341, quartering(30-60) 4.497 ✓
+- §5.7 горизонты ↔ `results/horizons_f4/horizon_report.txt`: совпадают, включая per-target на последнем шаге ✓
+- §3.1 аудит ↔ `results/analysis_course_design/*.txt`: std курса 116.9°, доли КУ 4/50/18 %, corr(std Roll/Pitch/Vertical, h_s) +0.557/+0.736/+0.680, corr(ROT, dCourse) +0.985, спокойный регион 14 эпизодов, gain 0.421/0.284, corr +0.992, 88 % сегментов ✓
+
+**НАЙДЕНА И УСТРАНЕНА НЕСТЫКОВКА (SD-конвенция):**
+- §5.2 ablation КУ: числа из лога §5.5.4 были в population-SD (n): «6.53±0.60 vs 6.92±0.24,
+  9.22±0.72 vs 8.88±0.36». Те же канонические прогоны в learning curve/свипе/горизонтах
+  даны в sample-SD (n−1): пересчёт по сырым сидам из `experiments.csv`:
+  КУ K9 6.526±0.733, no-rel K9 6.917±0.290, КУ K2 9.216±0.887, no-rel K2 8.876±0.443.
+- В статье v1.1 §5.2 приведён к sample-SD (6,53±0,73 vs 6,92±0,29; 9,22±0,89 vs 8,88±0,44),
+  добавлены R² (0.509 vs 0.490) и Skill (+0.42 vs +0.38) ablation; средние НЕ изменились,
+  улучшение ~5.6 % в силе. В последующих сводках использовать sample-SD (n−1) повсеместно.
+- Асимптота аппроксимации (c≈0 → потолок MAE ≈ 0) — физически неосмысленна; в статье v1.1 §5.1 уточнено.
+
+**Статус статьи:** v1.1 (ревизия N3 частично выполнена: числа сверены, SD унифицирован).
+Остаток N3: библиография [VERIFY] по первоисточникам, метаданные судна/рейса (от автора),
+английская версия `paper-draft.md` синхронно.
+
+**Статья v1.2 (2026-09-29) — формальный математический аппарат:**
+- §3.5 «Математическая постановка задачи»: ряд $z_t$, скользящие окна $(X_i, Y_i)$
+  в матричных обозначениях (X ∈ R^{L×24}, Y ∈ R^{H×8}), z-score стандартизация
+  (target-скалер фиксирован по train), эмпирический риск argmin по D_train, оценка
+  на фиксированном D_test.
+- §3.6 «Архитектура» — формулы сверены с кодом (models/encoder.py, decoder.py,
+  attention.py, vessel_predictor.py): MLP-экстрактор (Linear+ReLU+Dropout 0.15 ×2,
+  D1∈R^{128×24}, D2∈R^{96×128}); уравнения LSTM-гейтеров; однонаправленный стек
+  2×128; bridge — отдельные линейные проекции h_n и c_n (128→96); аддитивное
+  внимание (Бахданау-стиль: e_t = v^T tanh(W_a[h̃; h_enc_t]), softmax, взвешенная
+  сумма); декодер — вход [ŷ_{s-1}; c] ∈ R^{136}, 2×96, первый вход нулевой,
+  teacher forcing p=0.5; параметры 474 984.
+- Функция потерь (внутри §3.6): L = λ_mse·L^w_MSE + λ_hub·L^w_Hub + λ_sm·L_sm
+  с весами целей w_k; Hub = SmoothL1 (δ=1); L_sm — несогласованность приращений
+  (penalирует рассогласование Δpred−Δy, НЕ «резкость» прогноза); базовые
+  λ=(1.0; 0.5; 0.1), w_Roll=2; варианты smooth0/huber0/roll_w4 формализованы.
+- Обучение: AdamW (lr 5e-4, weight decay 1e-4), batch 48, gradient clipping,
+  ReduceLROnPlateau по val loss — сверено с config/config.py + trainer.py
+  (ReduceLROnPlateau/weight_decay ранее в статье отсутствовали — добавлены).
+- §3.8 «Метрики» — формулы MAE/RMSE/R² (R² по flatten с ε=1e-8; per-target R²
+  может быть отрицательным — указано), кривая MAE по упреждению, Skill vs
+  persistence (ŷ=y_t), режимы по Wave.Highest на ПЕРВОЙ строке окна
+  (сверено с scripts/evaluate_regimes.py: wave_h_bin.iloc[idx]).
+- Обе копии синхронны: docs/ARTICLE_DRAFT_RU.md = article_v3_ru.md (v1.2, 875 строк).
+
+**Статья v1.3 (2026-09-29) — LaTeX-формат формул:**
+- Все 26 display-блоков \[...\] → $$...$$; 1 inline \(...\) → $...$; содержимое формул
+  не менялось. Итог: 27 блоков $$, 228 знаков $ (парность проверена — чётная).
+- Формат совместим с импортом в Word: pandoc (markdown → docx даёт нативные уравнения
+  OMML) или режим LaTeX в редакторе уравнений Word (Alt+=).
+- Обе копии синхронны: docs/ARTICLE_DRAFT_RU.md = article_v3_ru.md (v1.3).
+
+**Статья v1.3 — экспорт в Word (2026-09-29):**
+- pandoc 3.9 установлен через `pypandoc-binary` (в venv, в requirements.txt НЕ добавлен —
+  одноразовый инструмент; winget недоступен: ошибка 0x8a15000f).
+- Конвертация: `docs/ARTICLE_DRAFT_RU.md` (v1.3, формат `markdown+tex_math_dollars`,
+  `--metadata lang=ru-RU --standalone`) → `draft-article/article_v3_ru.docx` (39 КБ).
+- Проверка docx: 141 нативное уравнение OMML (m:oMath), 0 остатков сырого LaTeX в тексте;
+  все разделы, таблицы и подписи на месте. Формулы редактируемы в Word (не картинки).
