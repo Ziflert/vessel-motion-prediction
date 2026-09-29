@@ -242,10 +242,14 @@ models_archive/
     ├── checkpoints/scalers.pkl      ← нормализация
     └── environment.txt              ← версии пакетов
 results/
-├── inference_*/                     ← графики прогнозов, predictions.csv
-├── regimes_*/                       ← таблицы по режимам волнения
-├── rolling_*/                       ← rolling-ряды, спектры, PNG-анализ
-└── compare_*/                       ← сравнение моделей
+├── article/figs_v2/                 ← рисунки статьи (текущий канон fig1…fig7)
+├── sweep_f3/, horizons_f4/          ← sweep и матрица горизонтов (текущий канон)
+├── learning_curve_f1/, f1_logs/     ← learning curve + сырые логи Ф1–Ф4
+├── regimes/<run>/, rolling/<run>/   ← таблицы по режимам, rolling-анализ прогона
+├── online/<id>_{playback,live}/     ← сессии панели (транзиентные)
+└── archive/                         ← легаси первой версии
+archive/                              ← архив старого пайплайна и тестовых сессий
+                                      (перенесено 2026-09-29, ничего не удалено) — archive/README.md
 ```
 
 ---

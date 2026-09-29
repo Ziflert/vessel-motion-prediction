@@ -2,7 +2,7 @@
 A2 (IDEAS.md): журнальный набор рисунков статьи.
 
 Строит 5 фигур из ГОТОВЫХ данных (реестр + results/*.csv), PDF+PNG 300 dpi,
-в results/article/figs/:
+в results/article/figs_v2/ (старый канон — archive/results_old_pipeline/article/figs/):
   fig1 — learning curve + степенной закон (E1, mean±std);
   fig2 — ΔMAE sweep-вариантов по объёму выборки (мультисид, mean±std);
   fig3 — per-target сравнение: реал 700 / реал 5949 / синтетика 30k / аугмент 700+17.5k;
@@ -32,7 +32,7 @@ import registry as reg
 
 import argparse
 
-OUT = PROJECT_ROOT / 'results' / 'article' / 'figs'
+OUT = PROJECT_ROOT / 'archive' / 'results_old_pipeline' / 'article' / 'figs'
 OUT_NEW = PROJECT_ROOT / 'results' / 'article' / 'figs_v2'
 
 # --- журнальный стиль ---
@@ -70,7 +70,7 @@ _use_old = True  # переключается в main (--new-pipeline)
 
 # ----------------------------------------------------------------------------
 def fig1_learning_curve(new=False):
-    src = (PROJECT_ROOT / 'results/learning_curve/e1_aggregated.csv' if not new
+    src = (PROJECT_ROOT / 'archive/results_old_pipeline/learning_curve/e1_aggregated.csv' if not new
            else PROJECT_ROOT / 'results/learning_curve_f1/f1_aggregated.csv')
     df = pd.read_csv(src)
     n = df['n_train_rows'].values.astype(float)
@@ -198,7 +198,7 @@ def fig3_per_target(new=False):
             '5949 без КУ (Ф2)': (df['exp'] == 'F2') & (df['n'] == 5949),
         }
     else:
-        df = pd.read_csv(PROJECT_ROOT / 'results/learning_curve/all_study_runs.csv')
+        df = pd.read_csv(PROJECT_ROOT / 'archive/results_old_pipeline/learning_curve/all_study_runs.csv')
         df['per_target_mae'] = df['per_target_mae'].apply(ast.literal_eval)
         cond = {
             'Реал 700': (df['exp'] == 'E1') & (df['n_train_rows'] == 700),

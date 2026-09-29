@@ -69,12 +69,13 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 | `data/raw/your_data_minimal.csv` + `docs/MINIMAL_DATASET.md` | минимальный датасет (17 колонок, КУ wind/wave) + профиль `minimal_prediction` |
 | `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур, панель управления (`docs/ONLINE_SYSTEM_PLAN.md`) |
 | `docs/` | онлайн-документы (ONLINE_*), `TASKS_history.txt`, `history/` (исторические + `history/legacy_notes/`) |
-| `results/` | `sweep/`, `article/`, `learning_curve/`, `regimes/<run>/`, `rolling/<run>/`, `snapshots/`, `archive/` (легаси) |
+| `results/` | текущий канон: `sweep_f3/`, `article/figs_v2/`, `learning_curve_f1/`, `horizons_f4/`, `regimes/<run>/`, `rolling/<run>/`, `f1_logs/`, `online/`, `snapshots/`, `archive/` (легаси первой версии) |
+| `archive/` | архив старого пайплайна (перенесено 2026-09-29, ничего не удалено): `results_old_pipeline/` (figs, horizons, sweep, learning_curve, regimes/rolling v003), `online_sessions/`; README внутри |
 
 ## Открытые задачи (приоритет)
 
-1. ~~Мультисид (A1)~~ — ✅ 2026-09-28, см. RESEARCH_LOG §5.5.1; журнальные рисунки (A2) — ✅ `results/article/figs/`.
-2. ~~A3: матрица горизонтов 10/20/30~~ — ✅ 2026-09-28, RESEARCH_LOG §5.6 (`results/horizons/`, fig6/fig7 в article/figs): упреждение до ~10 с уверенное (Skill +0.60), дальше ошибка и дисперсия растут — аргумент за MC-Dropout (C4).
+1. ~~Мультисид (A1)~~ — ✅ 2026-09-28, см. RESEARCH_LOG §5.5.1; журнальные рисунки (A2) — ✅ `archive/results_old_pipeline/article/figs/` (актуальный канон — `results/article/figs_v2/`).
+2. ~~A3: матрица горизонтов 10/20/30~~ — ✅ 2026-09-28, RESEARCH_LOG §5.6 (`archive/results_old_pipeline/horizons/`, fig6/fig7 в archive; актуальный канон — `results/horizons_f4/`): упреждение до ~10 с уверенное (Skill +0.60), дальше ошибка и дисперсия растут — аргумент за MC-Dropout (C4).
 3. ~~Метрика покрытия Ω~~ — ОБЪЕДИНЕНА с G2 (аудит 2026-09-28, IDEAS §G): гипотеза «длительность записи × район плавания» включает метрику Ω.
 4. Протокол записи для Transas 4000: **сбор данных (B1) — самая важная задача, остаётся актуальной** (указание заказчика); план сбора составить позже по описанию заказчика.
 5. Очередь выполнения после аудита 2026-09-28 — IDEAS §E (N1–N13): N1 B1 сбор данных (внешний блокер) → N2 D1 статьи чистовая → N3 D2 ревизор → N4 C4 MC-Dropout → N5 G1 (H=120) → N6 F2 словарь (пауза) → N7 B2 → N8 C1/C2 → N9 A4 → N10 G2 (Ω) → N11 G3 → N12 C3/C5 → N13 отложенные.

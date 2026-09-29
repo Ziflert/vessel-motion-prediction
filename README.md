@@ -53,7 +53,7 @@ python -m venv .venv
 | **Мультисид** | одиночный сид переоценивает эффекты; знаки выводов устойчивы по сидам 42/43/44 |
 
 Рисунки для статьи (PDF+PNG 300 dpi, строятся одним прогоном из готовых данных):
-`results/article/figs/fig1…fig5` — кривая обучения + степенной закон, sweep, per-target, режимы волнения, дрейф периода качки.
+`results/article/figs_v2/fig1…fig7` — кривая обучения + степенной закон, sweep, per-target, режимы волнения, дрейф периода качки.
 
 ## 🧭 Критические факты о данных (важно до любых экспериментов)
 
@@ -76,7 +76,8 @@ python -m venv .venv
 | `online/` | онлайн-система + веб-панель (`docs/ONLINE_SYSTEM_PLAN.md`, `docs/ONLINE_DECISIONS.md`, `docs/ONLINE_BUILD_LOG.md`) |
 | `models_archive/<run_id>/manifest.json` | карточка каждого прогона — источник правды; сводка — `models_archive/experiments.csv` |
 | `scripts/` | рабочие: анализ данных, генератор синтетики, sweep, learning curve, рисунки статьи; `scripts/archive/` — одноразовые (выполнены) |
-| `results/` | `sweep/`, `article/figs/`, `learning_curve/`, `regimes/<run>/`, `rolling/<run>/`, `archive/` (легаси) |
+| `results/` | текущий канон: `sweep_f3/`, `article/figs_v2/`, `learning_curve_f1/`, `horizons_f4/`, `regimes/<run>/`, `rolling/<run>/`, `f1_logs/`, `online/`, `archive/` (легаси первой версии) |
+| `archive/` | архив старого пайплайна и тестовых сессий (перенесено 2026-09-29, ничего не удалено) — `archive/README.md` |
 | `tests/` | smoke-тесты (в т.ч. `tests/test_online.py`) |
 | `docs/` | онлайн-документы, `TASKS_history.txt`, `history/` + `history/legacy_notes/` |
 

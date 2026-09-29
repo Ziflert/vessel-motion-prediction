@@ -97,7 +97,7 @@ def main():
 
     new_pipeline = prefix != 'E1'
     out = PROJECT_ROOT / (f'results/learning_curve_{prefix.lower()}' if new_pipeline
-                          else 'results/learning_curve')
+                          else 'archive/results_old_pipeline/learning_curve')
     out.mkdir(parents=True, exist_ok=True)
 
     region_note = ('ПОЛНАЯ запись (Ф0.5): спокойный 0–4000 + активный 4000+, '

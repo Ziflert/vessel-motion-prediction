@@ -82,7 +82,7 @@ def main():
             [p for p in ss if p]).mean().to_dict() if any(p for p in ss) else {}),
     ).reset_index()
 
-    out = PROJECT_ROOT / ('results/sweep' if prefix == 'SWEEP' else f'results/sweep_{prefix.lower()}')
+    out = PROJECT_ROOT / ('archive/results_old_pipeline/sweep' if prefix == 'SWEEP' else f'results/sweep_{prefix.lower()}')
     out.mkdir(parents=True, exist_ok=True)
 
     region_note = ('ПОЛНАЯ запись (Ф0.5), minimal_prediction' if prefix != 'SWEEP'

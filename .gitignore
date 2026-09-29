@@ -44,6 +44,11 @@ logs/
 \!version_1/results/
 \!version_1/__pycache__/
 
+# Архив (создан аудитом 2026-09-29, ничего не удалено — только перенесено):
+# тестовые online-сессии — транзиентные CSV, в git не идут;
+# лёгкие тексты/метрики results_old_pipeline — в git (историческая ценность)
+archive/online_sessions/
+
 # Онлайн-сессии (транзиентные данные; отчёты дообучений оставляем)
 results/online/*
 !results/online/*_finetune/
@@ -58,3 +63,11 @@ models_archive/*/checkpoints/scalers.pkl
 # Транзиентные данные дообучения (exported finetune-сегменты)
 data/online_finetune/*
 !data/online_finetune/.gitkeep
+
+# Obsidian / заметки-редактор (локальные конфиги, в git не идут)
+.obsidian/
+
+# Локальная рабочая папка статьи (Word-документы и временные файлы Word)
+draft-article/
+~$*
+~WRL*.tmp

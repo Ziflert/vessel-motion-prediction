@@ -33,8 +33,11 @@
 - `!version_1` и `README/` удалены; корень — только CLI + `.md`-документы + `requirements.txt`;
 - `model_manager.py` → `docs/history/legacy_notes/` (легаси, заменён `registry.py`);
 - одноразовые скрипты → `scripts/archive/` (выполнены, не запускать);
-- `results/`: рабочие папки без run-id-суффиксов (`regimes/<run>/`, `rolling/<run>/`),
-  легаси-вывод — `results/archive/`;
+- `results/`: текущий канон (`sweep_f3/`, `article/figs_v2/`, `learning_curve_f1/`, `horizons_f4/`,
+  `regimes/<run>/`, `rolling/<run>/`), легаси первой версии — `results/archive/`;
+- `archive/` — архив старого пайплайна (перенесено 2026-09-29, ничего не удалено):
+  `results_old_pipeline/` (figs, horizons, sweep, learning_curve старого канона, regimes/rolling v003)
+  и `online_sessions/` (тестовые сессии панели); описание — `archive/README.md`;
 - `docs/TASKS_history.txt` — выполненные задачи заказчика (бывш. `Tasks fm user.txt`);
 - чекпоинты моделей (`best_model.pt`/`scalers.pkl`) НЕ в git — восстанавливаются
   перезапуском обучения по manifest; в git только манифесты и метрики.
@@ -60,7 +63,7 @@
 
 - Не читать `docs/history/` без явной необходимости; там ≥ 450 строк истории.
 - Не перечитывать большие CSV/PNG; для результатов есть готовые сводки
-  (`results/learning_curve/learning_curve_report.txt`, `results/analysis_real_data/report.txt`).
+  (`results/learning_curve_f1/learning_curve_report.txt`, `results/analysis_real_data/report.txt`).
 - Логи обучения не читать из консоли истории — читать `training_summary.txt` прогона.
 - При длинных сессиях возвращаться к этому файлу, а не к «памяти» о прочитанном.
 

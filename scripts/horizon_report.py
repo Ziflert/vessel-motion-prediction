@@ -7,7 +7,7 @@ A3 (IDEAS.md): отчёт по матрице горизонтов прогно�
   2. сводную таблицу overall MAE/R²/skill по (вариант × H);
   3. фигуры fig6 (кривая от упреждения — ключевой график для СППР) и
      fig7 (цена горизонта: overall MAE и skill по H) — PDF+PNG 300 dpi,
-     дублируются в results/article/figs/.
+     дублируются в results/article/figs_v2/.
 
 Запуск: .venv/Scripts/python.exe scripts/horizon_report.py
 """
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 
 import registry as reg
 
-OUT = PROJECT_ROOT / 'results' / 'horizons'
+OUT = PROJECT_ROOT / 'archive' / 'results_old_pipeline' / 'horizons'
 FIGS = PROJECT_ROOT / 'results' / 'article' / 'figs'
 
 # --- журнальный стиль (как article_figures.py) ---
@@ -286,8 +286,8 @@ def main():
     lines += ['', '=' * 78,
               'Интерпретация для СППР (CONCEPT §4.2): горизонт, на который можно верить прогнозу,',
               'определяется ростом MAE по упреждению; бейзлайн persistence — нижняя планка полезности.',
-              'Артефакты: results/horizons/ (horizon_overall.csv, horizon_curve.csv, fig6, fig7);',
-              'фигуры продублированы в results/article/figs/.', '=' * 78]
+              'Артефакты: results/horizons_f4/ (horizon_overall.csv, horizon_curve.csv, fig6, fig7);',
+              'фигуры продублированы в results/article/figs_v2/.', '=' * 78]
     with open(OUT / 'horizon_report.txt', 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
     print(f'  ✓ horizon_report.txt')
