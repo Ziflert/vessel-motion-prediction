@@ -31,11 +31,15 @@ from data.features import engineer_features_dataframe, circular_diff
 from run_training import load_data
 import registry as reg
 
+# Границы приведены к масштабу записи (Ф0.5, §5.8): спокойный регион 0–4000 —
+# волна 1.48–4.70 м (лёгкая/умеренная), активный 4000+ — 4.70–10.80 м.
+# Спокойный/лёгкий режим — ОТДЕЛЬНЫЙ режим (ранее границы 0.5/1.5/2.5 всю запись
+# сваливали в «rough/severe», а «calm» был пуст — спокойный режим не оценивался).
 WAVE_HEIGHT_BINS = [
-    ('calm (<0.5 м)', 0.0, 0.5),
-    ('moderate (0.5-1.5 м)', 0.5, 1.5),
-    ('rough (1.5-2.5 м)', 1.5, 2.5),
-    ('severe (>2.5 м)', 2.5, 1e9),
+    ('calm (<1.5 м)', 0.0, 1.5),
+    ('light (1.5-4.7 м)', 1.5, 4.7),
+    ('rough (4.7-7 м)', 4.7, 7.0),
+    ('severe (>7 м)', 7.0, 1e9),
 ]
 
 # Границы |относительного угла встречи| в градусах
@@ -149,7 +153,8 @@ def format_report(per_regime, targets, n_windows, run_id):
             mae = d['sum_abs'] / d['n']
             rmse = np.sqrt(d['sum_sq'] / d['n'])
             n_seq = d['n'] // len(targets)
-            lines.append(f'{k.split(":", 1)[1]:28s} MAE={mae:8.4f}  RMSE={rmse:8.4f}  (n={n_seq} окон)')
+            label = k if ':' not in k else k.split(':', 1)[1]
+            lines.append(f'{label:28s} MAE={mae:8.4f}  RMSE={rmse:8.4f}  (n={n_seq} окон)')
             lines.append('    per-target MAE: ' +
                          ', '.join(f'{t.split("(")[0]}={d["per_target_abs"][i] / d["n"]:.4f}'
                                    for i, t in enumerate(targets)))
@@ -161,7 +166,8 @@ def main():
     reg._force_utf8_stdio()
     parser = argparse.ArgumentParser(description='Per-regime (sea state) evaluation')
     parser.add_argument('--run-id', type=str, required=True)
-    parser.add_argument('--data-path', type=str, default='./data/raw/your_data.csv')
+    parser.add_argument('--data-path', type=str, default='./data/raw/your_data_minimal.csv',
+                        help='Дата-сет нового канона — минимальный (v2-пайплайн; Ф0.5)')
     parser.add_argument('--rows', type=str, default=None,
                         help='Диапазон строк данных start:end (по умолчанию: test-диапазоны из manifest, иначе все)')
     parser.add_argument('--stride', type=int, default=10,
@@ -180,8 +186,13 @@ def main():
     df = load_data(Path(args.data_path))
     eng = manifest.get('features', {}).get('feature_engineering')
     if eng:
-        df = engineer_features_dataframe(df, cyclic=eng['cyclic_encoding'],
-                                         relative_wave_angle=eng['relative_wave_angle'])
+        # Все применённые преобразования из manifest (в т.ч. КУ ветра — иначе
+        # Rel.Wind.angle отсутствует в df при профилях с relative_wind_angle)
+        df = engineer_features_dataframe(
+            df,
+            cyclic=eng.get('cyclic_encoding', True),
+            relative_wave_angle=eng.get('relative_wave_angle', True),
+            relative_wind_angle=eng.get('relative_wind_angle', False))
     df = get_regime_frames(df)
 
     # Какие строки оцениваем

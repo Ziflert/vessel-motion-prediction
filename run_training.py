@@ -76,6 +76,45 @@ def split_segments(df: pd.DataFrame, chunk_size: int = 1000,
     return train_segments, val_segments, test_segments, test_row_ranges
 
 
+def check_target_signal(train_segments, config, min_std: float = 1e-6) -> dict:
+    """
+    Гейт «мёртвых» участков ДО обучения (урок E-1; Ф0.5).
+
+    Проверяет std целей train-подмножества ДО создания DataLoader'ов: канал с
+    std≈0 в train → вырожденный target-скалер → коллапс модели (E-1: val MAE
+    688σ, «модель сломалась» — фактически данные без сигнала).
+
+    Поведение (уточнение §5.8):
+      - предупреждает по каждому безсигнальному каналу (например Pitch std=0
+        на спокойной воде — канал живой в шторме, вклад ограничен);
+      - падает (ValueError) ТОЛЬКО если ВСЕ цели без сигнала — чистая стоянка.
+
+    Returns: dict {target -> std} (попадает в manifest['data']['target_std_train']).
+    """
+    df_train = pd.concat(list(train_segments), ignore_index=True)
+    stds, dead, missing = {}, [], []
+    for t in config.target_columns:
+        if t not in df_train.columns:
+            missing.append(t)
+            continue
+        s = float(df_train[t].std())
+        stds[t] = s
+        if s < min_std:
+            dead.append(t)
+    if missing:
+        raise ValueError(f'E-1 ГЕЙТ: цели отсутствуют в данных: {missing}')
+    if len(dead) == len(config.target_columns):
+        raise ValueError(
+            'E-1 ГЕЙТ: ВСЕ цели без сигнала в train-подмножестве (чистая стоянка?) — '
+            'обучение отменено. Урок E-1: исключать участки без сигнала ДО обучения.')
+    if dead:
+        print(f"  ⚠ E-1 ГЕЙТ: без сигнала в train ({len(dead)}/{len(config.target_columns)}): "
+              + ', '.join(dead))
+        print("    (НЕ чистая стоянка — остальные цели живые; вклад канала ограничен, "
+              "per-target оценка по режимам обязательна)")
+    return stds
+
+
 # ============================================================================
 # Основной пайплайн
 # ============================================================================
@@ -283,6 +322,13 @@ def main():
             syn = syn.iloc[:args.extra_train_rows]
         extra_train_segments = [syn]
         print(f"  ⚡ EXTRA TRAIN (synthetic): +{len(syn)} rows from {args.extra_train_csv}")
+
+    # Гейт «мёртвых» участков (урок E-1, Ф0.5): std целей train-подмножества
+    # ДО обучения — коллапс E-1 проверяется на новом пайплайне автоматически.
+    target_std_train = check_target_signal(train_segments, config)
+    print("  Target std (train): " + ", ".join(
+        f"{k.split('(')[0]}={v:.3f}" for k, v in target_std_train.items()))
+
     n_train = sum(len(s) for s in train_segments)
     n_val = sum(len(s) for s in val_segments)
     n_test = sum(len(s) for s in test_segments)
@@ -304,6 +350,7 @@ def main():
         'subset_seed': args.subset_seed,
         'fixed_scaler': bool(args.fixed_scaler),
         'train_frac': args.train_frac,
+        'target_std_train': target_std_train,
         'synthetic_train': ({'path': args.train_synthetic_csv,
                              'sha256': reg.file_sha256(args.train_synthetic_csv),
                              'rows_used': args.train_synthetic_rows} if args.train_synthetic_csv else None),

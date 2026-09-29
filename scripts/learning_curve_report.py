@@ -22,14 +22,14 @@ import pandas as pd
 import registry as reg
 
 
-def collect_runs():
+def collect_runs(prefixes=('E1', 'E2', 'E3')):
     rows = []
     for run in reg.list_runs():
         m = run['manifest']
         if m is None:
             continue
         notes = m.get('hypothesis', '') or ''
-        if not notes.startswith(('E1', 'E2', 'E3')):
+        if not notes.startswith(prefixes):
             continue
         res = m.get('results', {})
         phys = res.get('physical', {})
@@ -83,20 +83,32 @@ def main():
         except Exception:
             pass
 
-    df = collect_runs()
+    import argparse
+    parser = argparse.ArgumentParser(description='Learning curve report')
+    parser.add_argument('--prefix', type=str, default='E1',
+                        help='Префикс notes серии (E1 — старый пайплайн E1/E2/E3; '
+                             'F1 — новый пайплайн v2-канон, Ф0.5/Ф1)')
+    prefix = parser.parse_args().prefix
+
+    df = collect_runs(prefixes=(prefix,) if prefix != 'E1' else ('E1', 'E2', 'E3'))
     if df.empty:
-        print('Нет прогонов E1/E2/E3')
+        print(f'Нет прогонов с префиксом {prefix}')
         return
 
-    out = PROJECT_ROOT / 'results' / 'learning_curve'
+    new_pipeline = prefix != 'E1'
+    out = PROJECT_ROOT / (f'results/learning_curve_{prefix.lower()}' if new_pipeline
+                          else 'results/learning_curve')
     out.mkdir(parents=True, exist_ok=True)
 
+    region_note = ('ПОЛНАЯ запись (Ф0.5): спокойный 0–4000 + активный 4000+, '
+                   'minimal_prediction, fixed scaler, test фиксирован' if new_pipeline
+                   else 'активный регион записи: строки 4000+, fixed scaler, test фиксирован')
     lines = ['=' * 84,
-             'LEARNING CURVE: качество vs объём обучающей выборки',
-             '(активный регион записи: строки 4000+, fixed scaler, test фиксирован)',
+             f'LEARNING CURVE ({prefix}): качество vs объём обучающей выборки',
+             f'({region_note})',
              '=' * 84, '']
 
-    e1 = df[df['exp'] == 'E1']
+    e1 = df[df['exp'] == prefix]
     agg = e1.groupby('n_train_rows').agg(
         mae_mean=('mae', 'mean'), mae_std=('mae', 'std'),
         r2_mean=('r2', 'mean'), r2_std=('r2', 'std'),
@@ -122,19 +134,27 @@ def main():
                   f'  Интерпретация: при увеличении train в 2 раза MAE падает на '
                   f'{(1 - 2 ** -b) * 100:.1f}%; асимптота (потолок данных) MAE ≈ {c:.2f}']
 
-    # E2 / E3
+    # E2 / E3 (только старый пайплайн; Ф1 — синтетика отдельной серией)
+    e3 = df[df['exp'] == 'E3'].copy() if 'E3' in df['exp'].values else e1.iloc[0:0].copy()
     lines += ['', '--- E2: обучение ТОЛЬКО на синтетике ---']
     for _, r in df[df['exp'] == 'E2'].iterrows():
         lines.append(f"  {r['notes']:28s} MAE={r['mae']:.3f}  R²={r['r2']:.3f}  skill={r['skill']:+.3f}")
 
     lines += ['', '--- E3: немного реального + синтетика (аугментация) ---']
-    e3 = df[df['exp'] == 'E3'].copy()
     e3['syn_rows'] = e3['notes'].str.extract(r'syn(\d+)').astype(float)
     e3 = e3.sort_values('syn_rows')
     for _, r in e3.iterrows():
         lines.append(f"  {r['notes']:28s} MAE={r['mae']:.3f}  R²={r['r2']:.3f}  skill={r['skill']:+.3f}")
 
     base1 = e1[e1['n_train_rows'] == e1['n_train_rows'].min()]['mae'].mean()
+    if new_pipeline:
+        report = '\n'.join(lines)
+        print(report)
+        (out / 'learning_curve_report.txt').write_text(report, encoding='utf-8')
+        df.to_csv(out / 'all_f1_runs.csv', index=False)
+        agg.to_csv(out / 'f1_aggregated.csv', index=False)
+        print(f'\n✓ Сохранено: {out}')
+        return
     basefull = e1[e1['n_train_rows'] == e1['n_train_rows'].max()]['mae'].mean()
     if len(e3):
         best_aug = e3.loc[e3['mae'].idxmin()]
@@ -146,7 +166,7 @@ def main():
     report = '\n'.join(lines)
     print(report)
     (out / 'learning_curve_report.txt').write_text(report, encoding='utf-8')
-    df.to_csv(out / 'all_study_runs.csv', index=False)
+    df.to_csv(out / 'all_study_runs.csv', index=False)  # E-пайплайн (F1 уходит раньше)
     agg.to_csv(out / 'e1_aggregated.csv', index=False)
 
     # График
@@ -157,7 +177,7 @@ def main():
     fig, ax = plt.subplots(figsize=(10, 6.5))
     xs = agg['n_train_rows'].values
     ax.errorbar(xs, agg['mae_mean'], yerr=agg['mae_std'].fillna(0), fmt='o-',
-                color='tab:blue', capsize=4, label='Только реальные данные (E1, mean±std)')
+                color='tab:blue', capsize=4, label=f'Только реальные данные ({prefix}, mean±std)')
     if popt is not None:
         xs_fit = np.linspace(xs.min(), xs.max(), 200)
         ax.plot(xs_fit, popt[0] * xs_fit ** (-popt[1]) + popt[2], '--',
@@ -175,7 +195,7 @@ def main():
     ax.set_xlabel('Объём обучающей выборки, строк (1 Гц)')
     ax.set_ylabel('Test MAE, физические единицы (8 целей)')
     ax.set_title('Качество прогноза качки vs объём обучающей выборки\n'
-                 '(test фиксирован, активный регион записи, fixed scaler)')
+                 f'(test фиксирован, {region_note})')
     ax.legend(fontsize=9)
     ax.grid(alpha=0.3)
     plt.tight_layout()
