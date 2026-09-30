@@ -186,11 +186,14 @@ warm start) / Тест-прогноз / Онлайн (A+B) / Данные (за�
 
 - Режим A: playback CSV «как сенсор» (1 строка/сек, скорость 1×–100×/max);
 - Режим B: live (mock-сенсор: seed, длительность, «уникальные вставки»);
-- график: факт + прогноз на 20 с + маркеры; запись серверная — при закрытом
-  браузере сессия продолжается;
+- график: факт + прогноз на 20 с + лента неопределённости MC-Dropout (mean±1.96·std,
+  N4/C4) + маркеры; запись серверная — при закрытом браузере сессия продолжается;
+- статус «не верить прогнозу» — MC-std выше эмпирического порога (вход СППР;
+  пороги per-target — `config/online.py: uncertain_max_std`, значения из
+  `results/mc_dropout_n4/`);
 - артефакты сессии: `results/online/<id>_{playback,live}/`
-  (`session.csv` + маркеры, `forecasts.csv`, `summary.txt`, `events.log`,
-  `config_snapshot.json`).
+  (`session.csv` + маркеры, `forecasts.csv`, `uncertainty.csv`, `summary.txt`,
+  `events.log`, `config_snapshot.json`).
 
 ### CLI playback (без браузера)
 

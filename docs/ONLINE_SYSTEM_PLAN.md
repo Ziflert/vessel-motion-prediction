@@ -247,6 +247,18 @@
   новый run), тест-прогноз (график + MAE), дообучение из панели, реестр,
   upload с валидацией. Подробности `docs/ONLINE_BUILD_LOG.md`.
 
+- [x] **ШАГ 8 — MC-Dropout в контуре (N4/C4):** неопределённость + статус «не верить
+  прогнозу» (вход СППР, CONCEPT §5.5). **ВЫПОЛНЕНО 2026-09-30:** валидация
+  (`scripts/mc_dropout_eval.py` → `results/mc_dropout_n4/`: corr(std, |error|) +0.6…0.9
+  per-segment, покрытие ±1.96σ ниже номинала → пороги эмпирические per-target, ADR-12);
+  `predict_uncertain` батчинг (124–159 мс/CPU, ADR-13); engine MC-cadence 1/10 +
+  watchdog; session.csv `uncertain_alert` + НОВЫЙ uncertainty.csv; WS лента;
+  UI: лента mean±1.96·std (uPlot bands) + статус-маркер «не верить прогнозу» +
+  справка mk-uncertain. Приёмка: `pytest tests/` 24 passed (+2 новых), engine с
+  production-моделью (155 tick — MC 150 мс/кадентный tick, ритм не сорван),
+  web-сессия 200 tick — CSV/WS корректны. Подробности — RESEARCH_LOG (N4) +
+  `docs/ONLINE_BUILD_LOG.md`.
+
 После каждого шага: отметить `[x]` здесь, записать раздел в
 `ONLINE_BUILD_LOG.md`, при смене решения — ADR в `ONLINE_DECISIONS.md`.
 

@@ -9,6 +9,7 @@ const state = {
   forecasts: [],  // история прогнозов для серии «прогноз был» ({tick, vals})
   rows: [],       // сырые строки записи для плавающих показателей (F1, bounded)
   live: [],       // выбранные параметры карточек-показателей
+  uncertain: { mean: null, std: null, alert: false },  // N4/C4: лента MC-Dropout
   ws: null, u: null, prChart: null,
 };
 window.state = state; // отладка/тесты: доступ к графику из консоли
@@ -317,9 +318,13 @@ function makeUPlot() {
       { label: `прогноз был (${HORIZON} шагов назад)`, stroke: '#e05bc4', width: 1.2, dash: [2, 3] },
       { label: 'input_anom', points: { show: true, size: 7 }, stroke: '#ef5466', width: 1 },
       { label: 'error_anom', points: { show: true, size: 7 }, stroke: '#b45cff', width: 1 },
+      // N4/C4: лента неопределённости MC-Dropout (mean ± z·std, шир. по выбранной цели)
+      { label: 'лента −', stroke: 'rgba(245,166,35,.5)', width: 1, dash: [2, 4] },
+      { label: 'лента +', stroke: 'rgba(245,166,35,.5)', width: 1, dash: [2, 4] },
     ],
+    bands: [{ series: [7, 8], fill: 'rgba(245,166,35,.12)' }],
   };
-  state.u = new uPlot(opts, [[], [], [], [], [], [], []], wrap);
+  state.u = new uPlot(opts, [[], [], [], [], [], [], [], [], []], wrap);
   state.u.__readout = $('on-cursor');
   attachZoomReset(state.u, $('btn-on-reset'));
 }
@@ -345,16 +350,29 @@ function drawOnline() {
   }
   const ticks = [...new Set([...actMap.keys(), ...predMap.keys(), ...past1.keys(), ...pastH.keys()])]
     .sort((a, b) => a - b);
-  const a = [], p = [], p1 = [], pH = [], mInp = [], mErr = [];
+  const a = [], p = [], p1 = [], pH = [], mInp = [], mErr = [], lo = [], hi = [];
+  // N4/C4: лента неопределённости вокруг текущего прогноза (mean ± z·std,
+  // шир. по выбранной цели; обновляется с cadence — лента персистентна)
+  const z = 1.96, uc = state.uncertain;
+  const uncLo = new Map(), uncHi = new Map();
+  if (uc.mean && uc.std && state.predTick !== null)
+    uc.mean.forEach((row, i) => {
+      const t = state.predTick + 1 + i;
+      if (t < windowStart) return;
+      const m = row[state.tgtIdx], s = (uc.std[i] || [])[state.tgtIdx];
+      if (m == null || s == null) return;
+      uncLo.set(t, m - z * s); uncHi.set(t, m + z * s);
+    });
   for (const t of ticks) {
     const av = actMap.get(t) ?? null, pv = predMap.get(t) ?? null;
     a.push(av); p.push(pv);
     p1.push(past1.get(t) ?? null); pH.push(pastH.get(t) ?? null);
+    lo.push(uncLo.get(t) ?? null); hi.push(uncHi.get(t) ?? null);
     const mk = markMap.get(t);
     mInp.push(mk && mk.inp ? (av ?? pv) : null);
     mErr.push(mk && mk.err ? (av ?? pv) : null);
   }
-  state.u.setData([ticks, p, a, p1, pH, mInp, mErr]);
+  state.u.setData([ticks, p, a, p1, pH, mInp, mErr, lo, hi]);
 }
 
 function buildTargetBar() {
@@ -389,6 +407,7 @@ $('btn-start')?.addEventListener('click', async () => {
   state.predCount = 0; state.actual = []; state.markers = []; state.preds = null;
   state.forecasts = [];   // история прогнозов {tick, vals[[horizon][n_targets]]}
   state.rows = [];        // сырые строки для плавающих показателей
+  state.uncertain = { mean: null, std: null, alert: false };
   refreshLiveSelect();
   if (!state.u) makeUPlot();
   connectWs();
@@ -448,6 +467,12 @@ function handleTick(m) {
   $('st-ratio').textContent = m.error_ratio == null ? '—' : m.error_ratio.toFixed(2);
   $('st-inp').className = 'marker ' + (m.input_anomaly ? 'on' : 'off');
   $('st-err').className = 'marker ' + (m.error_anomaly ? 'on' : 'off');
+  // N4/C4: статус «не верить прогнозу» (вход СППР)
+  if (m.uncertain_mean != null) state.uncertain.mean = m.uncertain_mean;
+  if (m.uncertain_std != null) state.uncertain.std = m.uncertain_std;
+  state.uncertain.alert = !!m.uncertain_alert;
+  const unc = $('st-unc');
+  if (unc) unc.className = 'marker ' + (m.uncertain_alert ? 'on' : 'off');
 }
 
 // ------------------------------------------------- ПЛАВАЮЩИЕ ПОКАЗАТЕЛИ (F1)

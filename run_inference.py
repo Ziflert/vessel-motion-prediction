@@ -252,16 +252,18 @@ class VesselPredictor_Inference:
         x = torch.FloatTensor(input_scaled).unsqueeze(0).to(self.device)
 
         self.model.train()  # активирует dropout (batchnorm в модели нет)
-        samples = []
+        # N4/C4-оптимизация (2026-09-29): сэмплы батчами repeat_interleave — один
+        # forward на весь батч; dropout-маски независимы на каждый элемент батча,
+        # математика MC не меняется. Поштучный цикл на CPU давал ~1–2 с на 30
+        # сэмплов (сорвал бы ритм tick-цикла), батч — ~100–300 мс.
         with torch.no_grad():
-            for _ in range(mc_samples):
-                pred = self.model(x, target=None, teacher_forcing_ratio=0.0)
-                samples.append(pred.cpu().numpy()[0])
+            x_rep = x.repeat_interleave(mc_samples, dim=0)
+            pred = self.model(x_rep, target=None, teacher_forcing_ratio=0.0)
+            pred = pred.cpu().numpy().reshape(1, mc_samples, pred.shape[1], -1)
         self.model.eval()
 
-        samples = np.stack(samples)  # [N, horizon, n_targets]
-        mean = self.target_scaler.inverse_transform(samples.mean(axis=0))
-        std = samples.std(axis=0) * self.target_scaler.scale_[None, :]
+        mean = self.target_scaler.inverse_transform(pred.mean(axis=1)[0])
+        std = pred.std(axis=1, ddof=1)[0] * self.target_scaler.scale_
         return {'mean': mean, 'std': std}
 
     def predict(self, input_data: np.ndarray) -> np.ndarray:
@@ -294,6 +296,10 @@ class VesselPredictor_Inference:
         x = torch.FloatTensor(input_scaled).unsqueeze(0).to(self.device)
 
         # Предсказание
+        # eval() перед каждым основным прогнозом: защита от зомби-потока stale-MC,
+        # который мог оставить модель в train()-режиме (dropout активен → деградация
+        # основного прогноза; N4/C4, план §7)
+        self.model.eval()
         with torch.no_grad():
             predictions = self.model(x, target=None, teacher_forcing_ratio=0.0)
 

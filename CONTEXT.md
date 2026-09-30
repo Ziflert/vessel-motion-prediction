@@ -22,6 +22,8 @@
 | Какая версия модели выбрать | `models_archive/experiments.csv` (CSV) или панель «Реестр» (кнопка В production) |
 | Онлайн-система (playback/live/аномалии/дообучение) | `docs/ONLINE_SYSTEM_PLAN.md` (план §10 — прогресс), `docs/ONLINE_BUILD_LOG.md` (журнал сборки), `docs/ONLINE_DECISIONS.md` (решения ±) |
 | Сбор данных с Transas (план, N1/B1) | `docs/TRANSAS_DATA_COLLECTION_PLAN.md` (сетка Ω, формат каналов, маркеры, экспорт, валидация) |
+| Параметры судна записи (Pilot Card / WheelHouse Poster) | `docs/Oil tanker 70k loaded.pdf`, `docs/Wheel-house poster - Oil tanker 70k loaded.pdf`; сводка — `docs/TRANSAS_DATA_COLLECTION_PLAN.md` §2.4 |
+| Шаблон окружения записи | `docs/enviroment 2.envtmpl` (зашифрованный бинарник Transas — напрямую НЕ читается, расшифровывается только симулятором; значения выписать при сборе B1) |
 | Минимальный датасет/профиль (необходимый минимум) | `docs/MINIMAL_DATASET.md` (обоснование), `scripts/make_minimal_dataset.py`, профиль `minimal_prediction` |
 | Контракт live-источника данных (режим B) | `docs/ONLINE_API.md` |
 | Куда идём дальше (идеи/roadmap LSTM) | `IDEAS.md` (статус D1–D4, приоритеты) |

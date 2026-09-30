@@ -44,12 +44,21 @@ class TickResult:
     error_anomaly: bool = False   # маркер: модель устойчиво ошибается (ШАГ 2)
     error_ratio: float = None     # во сколько раз ошибка выше базовой MAE модели
 
+    # --- N4/C4: MC-Dropout неопределённость (обновляется с cadence, лента
+    #     персистентна между MC-тиками) ---
+    uncertain_mean: np.ndarray = None  # [horizon, n_targets] — MC-среднее (физ. ед.)
+    uncertain_std: np.ndarray = None   # [horizon, n_targets] — MC-std (физ. ед.)
+    uncertain_alert: bool = False      # «не верить прогнозу»: std > порога (вход СППР)
+
 
 class PredictionEngine:
     def __init__(self, predictor, fe_params: dict, cfg: OnlineConfig):
         """
         predictor — VesselPredictor_Inference (run_inference.py)
-        fe_params — {'cyclic': bool, 'relative_wave_angle': bool} из manifest
+        fe_params — {'cyclic': bool, 'relative_wave_angle': bool,
+                     'relative_wind_angle': bool} из manifest (BUG-LSTM-01:
+                     все три параметра обязательны, иначе набор признаков
+                     не совпадёт с обучением)
         """
         self.predictor = predictor
         self.fe = dict(fe_params)
@@ -80,6 +89,12 @@ class PredictionEngine:
 
         # Реализованная ошибка «факт vs прогноз» (заполняется observe_actual)
         self._forecasts = {}   # tick -> np.ndarray [horizon, n_targets]
+
+        # --- N4/C4: MC-Dropout (последняя оценка хранится между MC-тиками) ---
+        self._has_uncertain = hasattr(predictor, 'predict_uncertain')
+        self._last_uncertain_mean = None
+        self._last_uncertain_std = None
+        self._last_uncertain_alert = False
         self._reset_error_stats()
 
     # ------------------------------------------------------------------
@@ -111,6 +126,22 @@ class PredictionEngine:
         result.inference_ms = ms
         self._forecasts[tick] = preds
         self._cleanup_forecasts(tick)
+
+        # N4/C4: MC-прогноз с cadence 1/uncertain_cadence (план C4): лента
+        # неопределённости + статус «не верить прогнозу» при широких интервалах.
+        # Каденс по номинальному номеру tick'а — воспроизводимость при повторном
+        # прогоне (детерминизм seed в логе сессии).
+        if self._has_uncertain and tick % max(1, self.cfg.uncertain_cadence) == 0:
+            mc_ms, mc_stale = self._run_uncertain(input_seq)
+            if mc_stale:
+                # MC не удался (watchdog): лента остаётся прежней, tick не рвём —
+                # это вспомогательный вызов, а не основной прогноз (план §7)
+                pass
+            else:
+                result.inference_ms += mc_ms
+        result.uncertain_mean = self._last_uncertain_mean
+        result.uncertain_std = self._last_uncertain_std
+        result.uncertain_alert = self._last_uncertain_alert
         return result
 
     # ------------------------------------------------------------------
@@ -164,6 +195,7 @@ class PredictionEngine:
             window,
             cyclic=self.fe['cyclic'],
             relative_wave_angle=self.fe['relative_wave_angle'],
+            relative_wind_angle=self.fe.get('relative_wind_angle', False),
         )
         input_df = engineered[self.feature_columns]
         if input_df.isna().values.any():
@@ -178,7 +210,8 @@ class PredictionEngine:
         try:
             engineered = engineer_features_dataframe(
                 last, cyclic=self.fe['cyclic'],
-                relative_wave_angle=self.fe['relative_wave_angle'])
+                relative_wave_angle=self.fe['relative_wave_angle'],
+                relative_wind_angle=self.fe.get('relative_wind_angle', False))
             row = engineered[self.feature_columns]
         except KeyError:
             return False, ''
@@ -212,6 +245,41 @@ class PredictionEngine:
         self._consecutive_stale = 0
         ms = (time.monotonic() - t0) * 1000.0
         return np.asarray(preds), ms, False
+
+    def _run_uncertain(self, input_seq: np.ndarray):
+        """N4/C4: MC-Dropout вызов с watchdog'ом. Возвращает (mc_ms, stale).
+        Обновляет ленту неопределённости и статус «не верить прогнозу»."""
+        future = self._executor.submit(
+            self.predictor.predict_uncertain, input_seq, self.cfg.uncertain_mc_samples)
+        t0 = time.monotonic()
+        try:
+            out = future.result(timeout=self.cfg.inference_timeout_s)
+        except FutureTimeoutError:
+            # Зеркально _run_predict: пересоздаём исполнитель (поток-зомби остаётся,
+            # лимит — stale_pause_threshold, план §7); stale-счётчик основного
+            # прогноза НЕ трогаем — вспомогательный вызов не должен ставить паузу.
+            self._executor.shutdown(wait=False)
+            self._executor = ThreadPoolExecutor(max_workers=1,
+                                                 thread_name_prefix='infer')
+            return 0.0, True
+
+        self._last_uncertain_mean = np.asarray(out['mean'])
+        self._last_uncertain_std = np.asarray(out['std'])
+        self._last_uncertain_alert = self._check_uncertain_alert(out['std'])
+        return (time.monotonic() - t0) * 1000.0, False
+
+    def _check_uncertain_alert(self, std: np.ndarray) -> bool:
+        """«Не верить прогнозу»: std ЛЮБОЙ цели выше её порога (физ. ед.).
+        Пороги — эмпирические per-target: покрытие ±1.96σ ниже номинала
+        (results/mc_dropout_n4, 2026-09-29) → номинальные z неприменимы."""
+        limits = self.cfg.uncertain_max_std
+        if not limits:
+            return False
+        for i, col in enumerate(self.target_columns):
+            lim = limits.get(col)
+            if lim is not None and np.nanmax(std[:, i]) > lim:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Статистика (для summary.txt / UI)

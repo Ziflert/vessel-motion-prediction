@@ -69,6 +69,8 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 | `data/raw/your_data_minimal.csv` + `docs/MINIMAL_DATASET.md` | минимальный датасет (17 колонок, КУ wind/wave) + профиль `minimal_prediction` |
 | `online/` | Онлайн-система: playback (CLI+веб), live-режим, детекторы аномалий, finetune-контур, панель управления (`docs/ONLINE_SYSTEM_PLAN.md`) |
 | `docs/` | онлайн-документы (ONLINE_*), `TASKS_history.txt`, `history/` (исторические + `history/legacy_notes/`) |
+| `docs/Oil tanker 70k loaded.pdf` + `docs/Wheel-house poster - Oil tanker 70k loaded.pdf` | Pilot Card / WheelHouse Poster судна записи (Oil tanker 77 100 t, Full load, Transas Model 2.166.1432.129): паспорт корпуса, телеграф, циркуляция; сводка — `docs/TRANSAS_DATA_COLLECTION_PLAN.md` §2.4 |
+| `docs/enviroment 2.envtmpl` | шаблон окружения Transas во время записи (зашифрованный бинарник — читается только симулятором; выписать значения при сборе B1) |
 | `results/` | текущий канон: `sweep_f3/`, `article/figs_v2/`, `learning_curve_f1/`, `horizons_f4/`, `regimes/<run>/`, `rolling/<run>/`, `f1_logs/`, `online/`, `snapshots/`, `archive/` (легаси первой версии) |
 | `archive/` | архив старого пайплайна (перенесено 2026-09-29, ничего не удалено): `results_old_pipeline/` (figs, horizons, sweep, learning_curve, regimes/rolling v003), `online_sessions/`; README внутри |
 
@@ -78,8 +80,14 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 2. ~~A3: матрица горизонтов 10/20/30~~ — ✅ 2026-09-28, RESEARCH_LOG §5.6 (`archive/results_old_pipeline/horizons/`, fig6/fig7 в archive; актуальный канон — `results/horizons_f4/`): упреждение до ~10 с уверенное (Skill +0.60), дальше ошибка и дисперсия растут — аргумент за MC-Dropout (C4).
 3. ~~Метрика покрытия Ω~~ — ОБЪЕДИНЕНА с G2 (аудит 2026-09-28, IDEAS §G): гипотеза «длительность записи × район плавания» включает метрику Ω.
 4. Протокол записи для Transas 4000: **сбор данных (B1) — самая важная задача, остаётся актуальной** (указание заказчика); план сбора составить позже по описанию заказчика.
-5. Очередь выполнения после аудита 2026-09-28 — IDEAS §E (N1–N13): N1 B1 сбор данных (внешний блокер) → N2 D1 статьи чистовая → N3 D2 ревизор → N4 C4 MC-Dropout → N5 G1 (H=120) → N6 F2 словарь (пауза) → N7 B2 → N8 C1/C2 → N9 A4 → N10 G2 (Ω) → N11 G3 → N12 C3/C5 → N13 отложенные.
+5. Очередь выполнения после аудита 2026-09-28 — IDEAS §E (N1–N13): N1 B1 сбор данных (внешний блокер) → N2 D1 статьи чистовая → N3 D2 ревизор → ~~N4 C4 MC-Dropout~~ — ✅ 2026-09-30 (валидация: corr(std, |error|) +0.6…0.9 per-segment, интеграция: engine MC-cadence 1/10 + лента + статус «не верить прогнозу»; pytest 24 passed; RESEARCH_LOG N4, BUILD_LOG ШАГ 8) → N5 G1 (H=120) → N6 F2 словарь (пауза) → N7 B2 → N8 C1/C2 → N9 A4 → N10 G2 (Ω) → N11 G3 → N12 C3/C5 → N13 отложенные.
 6. **Фазы §H (перезапуск на новом пайплайне):** ВСЕ ✅ (2026-09-29): ~~Ф0~~ ~~Ф0.5~~ ~~Ф1~~
    ~~Ф2 ablation КУ~~ ~~Ф3 свип (лучший roll_w4)~~ ~~Ф4 горизонты~~ ~~Ф5 фигуры figs_v2~~
    ~~Ф6 production (f3-roll_w4-k-9-seed42)~~; далее — roadmap §E (N2 статья → N3 ревизор →
-   N4 MC-Dropout → N5 G1 → N10 G2).
+   ~~N4 MC-Dropout~~ ✅ → N5 G1 → N10 G2).
+
+7. **Аудит кода вычислений (2026-09-29):** ВСЕ 10 дефектов (BUG-LSTM-01…10) исправлены +
+   доп. замечания; regression-тесты в `tests/test_smoke.py` §7–10; `pytest tests/` — 22 passed.
+   Детали — RESEARCH_LOG §6 (исправление дефектов). Существующие прогоны не пересчитывались
+   (воспроизведение — перезапуском обучения по manifest; для воспроизводимых CUDA-прогонов
+   — новый флаг `--deterministic`).

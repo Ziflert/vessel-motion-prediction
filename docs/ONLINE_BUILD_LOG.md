@@ -503,3 +503,34 @@ Roll(градусы): -0.641»; Snapshot из UI → `Roll(градусы)_your_
 
 **Дизайн-решения:** draggable карточек — v1.1 (сначала фиксированная сетка);
 z-оценка карточки относительно train-базы — связка с детекторами, v1.1.
+
+---
+
+## Сессия 2026-09-30 — ШАГ 8: MC-Dropout в контуре (N4/C4)
+
+**Правки:**
+- `config/online.py`: uncertain_cadence=10, uncertain_mc_samples=30, uncertain_ribbon_z=1.96,
+  uncertain_max_std (per-target пороги «не верить», физ. ед., None = off);
+- `run_inference.py`: predict_uncertain — батчинг сэмплов repeat_interleave (один forward
+  на батч; поштучный цикл CPU ~1–2 с → батч 124–159 мс); eval() перед каждым основным
+  прогнозом (защита от зомби stale-MC в train-режиме);
+- `online/engine.py`: TickResult + uncertain_mean/std/alert; _run_uncertain с watchdog'ом
+  (стale-счётчик основного прогноза не трогается); лента персистентна между MC-тиками;
+- `online/server.py`: session.csv + uncertain_alert; НОВЫЙ uncertainty.csv (std-матрица
+  на MC-тиках); WS + uncertain_mean/std/alert; счётчик uncertain_alert_ticks;
+- `online/static/panel.js` (?v=6): state.uncertain, лента mean±1.96·std (uPlot bands,
+  серии «лента −/+»), сброс при старте сессии, статус-маркер st-unc;
+- `online/static/index.html`: маркер «не верить прогнозу ?» в статусбаре, ?v=6;
+- `online/static/help.js`: точка «?» mk-uncertain (вход СППР, пороги эмпирические);
+- `scripts/mc_dropout_eval.py` — НОВЫЙ скрипт валидации N4 → `results/mc_dropout_n4/`;
+- `tests/test_online.py`: +2 теста (cadence/персистентность/пороги; stale MC без паузы).
+
+**Приёмка:**
+- `pytest tests/` — 24 passed (22 старых + 2 новых);
+- engine + production-модель на реальных данных (155 tick): MC на кадентных тиках
+  (150 мс vs 38 мс обычный tick), std Roll 0.11–0.17° (светлый режим), ритм не сорван;
+- web-сессия playback 200 tick (5×, f3-roll_w4): session.csv с uncertain_alert,
+  uncertainty.csv с первого MC-тика (tick 120), счётчики в summary.txt.
+
+**Дизайн-решения:** ADR-12 (пороги «не верить» эмпирические per-target — покрытие
+±1.96σ ниже номинала, номинальные z неприменимы); ADR-13 (батчинг MC-сэмплов).

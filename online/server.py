@@ -134,6 +134,7 @@ class PlaybackRunner(threading.Thread):
             'predicted': 0,
             'input_anomaly_ticks': 0,
             'error_anomaly_ticks': 0,
+            'uncertain_alert_ticks': 0,   # N4/C4: тики «не верить прогнозу»
         }
         self.error = None
         self.stats_snapshot = None       # engine.error_stats() — для /status
@@ -258,15 +259,20 @@ class PlaybackRunner(threading.Thread):
                 f.write(f'{ts} | {level} | {msg}\n')
 
         with open(session_path, 'w', encoding='utf-8', newline='') as f_session, \
-             open(fore_path, 'w', encoding='utf-8', newline='') as f_fore:
+             open(fore_path, 'w', encoding='utf-8', newline='') as f_fore, \
+             open(self.out_dir / 'uncertainty.csv', 'w', encoding='utf-8', newline='') as f_unc:
 
             session_writer = csv_mod.writer(f_session)
             session_writer.writerow(['tick', 'predicted', 'input_anomaly',
                                      'input_anomaly_features', 'error_anomaly',
-                                     'error_ratio'] + raw_columns)
+                                     'error_ratio', 'uncertain_alert'] + raw_columns)
             fore_writer = csv_mod.writer(f_fore)
             fore_writer.writerow(['tick', 'horizon_step'] +
                                  [f'pred_{c}' for c in target_columns])
+            # N4/C4: лента неопределённости пишется на MC-тиках (cadence)
+            unc_writer = csv_mod.writer(f_unc)
+            unc_writer.writerow(['tick', 'horizon_step'] +
+                                [f'std_{c}' for c in target_columns])
 
             tick = 0
             for tick, row in row_iter:
@@ -290,7 +296,8 @@ class PlaybackRunner(threading.Thread):
                     [tick, int(result.predicted), int(result.input_anomaly),
                      result.input_anomaly_features, int(engine.last_error_marker),
                      '' if engine.last_error_ratio is None
-                        else f'{engine.last_error_ratio:.3f}']
+                        else f'{engine.last_error_ratio:.3f}',
+                     int(result.uncertain_alert)]
                     + [row.get(c, '') for c in raw_columns])
 
                 if result.predicted:
@@ -300,10 +307,20 @@ class PlaybackRunner(threading.Thread):
                             [tick, h + 1]
                             + [round(float(v), 6) for v in result.preds[h]])
 
+                # N4/C4: std-лента в CSV — на MC-тиках (кадентные значения)
+                if result.uncertain_std is not None and result.predicted \
+                        and tick % max(1, cfg.uncertain_cadence) == 0:
+                    for h in range(engine.horizon):
+                        unc_writer.writerow(
+                            [tick, h + 1]
+                            + [round(float(v), 6) for v in result.uncertain_std[h]])
+
                 if result.input_anomaly:
                     self.status['input_anomaly_ticks'] += 1
                 if engine.last_error_marker:
                     self.status['error_anomaly_ticks'] += 1
+                if result.uncertain_alert:
+                    self.status['uncertain_alert_ticks'] += 1
                 self.status['tick'] = tick + 1
 
                 self._broadcast({
@@ -317,6 +334,15 @@ class PlaybackRunner(threading.Thread):
                     'error_anomaly': engine.last_error_marker,
                     'error_ratio': engine.last_error_ratio,
                     'inference_ms': result.inference_ms,
+                    'uncertain_alert': result.uncertain_alert,
+                    # N4/C4: лента неопределённости (MC-среднее/std, физ. ед.) —
+                    # персистентна между MC-тиками (обновляется с cadence)
+                    'uncertain_mean': None if result.uncertain_mean is None
+                        else [[round(float(v), 4) for v in row_]
+                              for row_ in result.uncertain_mean],
+                    'uncertain_std': None if result.uncertain_std is None
+                        else [[round(float(v), 4) for v in row_]
+                              for row_ in result.uncertain_std],
                     'actual': {c: float(row[c]) for c in target_columns},
                     'preds': None if result.preds is None
                     else [[round(float(v), 4) for v in row_]
@@ -727,10 +753,11 @@ async def api_predict(req: PredictRequest):
     predictor = VesselPredictor_Inference(str(ckpt), str(scalers))
     fe = extract_fe_params(manifest)
     df = load_raw_csv(DATA_DIR / req.csv)
-    if fe['cyclic'] or fe['relative_wave_angle']:
+    if fe['cyclic'] or fe['relative_wave_angle'] or fe.get('relative_wind_angle', False):
         from data.features import engineer_features_dataframe
         df = engineer_features_dataframe(df, cyclic=fe['cyclic'],
-                                          relative_wave_angle=fe['relative_wave_angle'])
+                                          relative_wave_angle=fe['relative_wave_angle'],
+                                          relative_wind_angle=fe.get('relative_wind_angle', False))
     seq, hor = predictor.config.sequence_length, predictor.config.prediction_horizon
     start = max(0, min(req.start_row, len(df) - seq - hor))
     hist_end = start + seq

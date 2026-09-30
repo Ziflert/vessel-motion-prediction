@@ -63,6 +63,23 @@ def make_rows(n, val=1.0):
     return [{'a': val, 'b': val + 1, 'ta': val * 2} for _ in range(n)]
 
 
+class UncertainPredictor(FakePredictor):
+    """N4/C4: fake с predict_uncertain — фиксированная лента; скорость MC управляемая."""
+
+    def __init__(self, mc_delay=0.0, std_val=0.5, **kw):
+        super().__init__(**kw)
+        self._mc_delay = mc_delay
+        self._std_val = std_val
+        self.mc_calls = 0
+
+    def predict_uncertain(self, x, mc_samples=30):
+        if self._mc_delay:
+            time.sleep(self._mc_delay)
+        self.mc_calls += 1
+        h, n_t = self.config.prediction_horizon, len(self.config.target_columns)
+        return {'mean': np.zeros((h, n_t)), 'std': np.full((h, n_t), self._std_val)}
+
+
 def test_ring_buffer():
     buf = RingBuffer(maxlen=10)
     for i in range(25):
@@ -86,6 +103,55 @@ def test_engine_warmup_and_predict():
     print('  ✓ Engine: прогрев, первый прогноз, монитор отключён без manifest')
 
 
+def test_engine_uncertain_cadence():
+    """N4/C4: MC-прогноз с cadence 1/10; лента персистентна между MC-тиками;
+    статус «не верить прогнозу» по эмпирическим порогам."""
+    cfg = OnlineConfig(uncertain_cadence=10, uncertain_mc_samples=5,
+                       uncertain_max_std={'ta': 0.4}, inference_timeout_s=2.0)
+    eng = PredictionEngine(UncertainPredictor(std_val=0.5),
+                           {'cyclic': False, 'relative_wave_angle': False}, cfg)
+    res = [eng.on_tick(i, row) for i, row in enumerate(make_rows(6))]
+    # первый прогноз на tick 4 — не MC-тик, ленты ещё нет
+    assert res[4].predicted and res[4].uncertain_std is None, 'до первого MC-тика ленты нет'
+    r10 = eng.on_tick(10, make_rows(1)[0])
+    assert r10.predicted and eng.predictor.mc_calls == 1, 'MC-тик: вызов predict_uncertain'
+    assert r10.uncertain_std is not None and r10.uncertain_std.shape == (3, 1)
+    assert r10.uncertain_mean is not None and r10.uncertain_mean.shape == (3, 1)
+    assert r10.uncertain_alert, 'std 0.5 > порога 0.4 → «не верить прогнозу»'
+    r11 = eng.on_tick(11, make_rows(1)[0])
+    assert eng.predictor.mc_calls == 1, 'между MC-тиками вызовов нет (cadence)'
+    assert r11.uncertain_std is not None and r11.uncertain_alert, \
+        'лента и статус персистентны между MC-тиками'
+    # низкий std → alert снимается только на следующем MC-тике
+    eng2 = PredictionEngine(UncertainPredictor(std_val=0.3),
+                            {'cyclic': False, 'relative_wave_angle': False}, cfg)
+    for i, row in enumerate(make_rows(11)):
+        r = eng2.on_tick(i, row)
+    assert r.uncertain_std is not None and not r.uncertain_alert, \
+        'std 0.3 <= порога 0.4 → прогнозу верить'
+    print('  ✓ Engine: MC-Dropout cadence, персистентность ленты, статус «не верить»')
+
+
+def test_engine_uncertain_stale_no_stall():
+    """N4/C4: stale MC-вызова НЕ рвёт tick и НЕ ставит паузу основного прогноза
+    (вспомогательный вызов, план §7)."""
+    cfg = OnlineConfig(uncertain_cadence=1, uncertain_mc_samples=5,
+                       inference_timeout_s=0.2, stale_pause_threshold=3)
+    eng = PredictionEngine(UncertainPredictor(mc_delay=0.5, std_val=0.5),
+                           {'cyclic': False, 'relative_wave_angle': False}, cfg)
+    for i, row in enumerate(make_rows(6)):
+        eng.on_tick(i, row)
+    # MC на каждом tick'е выходит за таймаут — основной прогноз продолжается,
+    # EngineStalledError НЕ возникает (stale-счётчик MC отдельный)
+    raised = False
+    try:
+        for i, row in enumerate(make_rows(6), start=6):
+            eng.on_tick(i, row)
+    except EngineStalledError:
+        raised = True
+    assert not raised, 'stale MC не должен останавливать источник'
+    assert eng._consecutive_stale == 0, 'stale-счётчик основного прогноза не тронут'
+    print('  ✓ Engine: stale MC — tick продолжается, пауза не ставится')
 def test_engine_watchdog():
     cfg = OnlineConfig(inference_timeout_s=0.2, stale_pause_threshold=3)
     eng = PredictionEngine(FakePredictor(predict_delay=0.5),
@@ -151,5 +217,7 @@ if __name__ == '__main__':
     test_engine_warmup_and_predict()
     test_engine_watchdog()
     test_engine_error_gate_nan()
+    test_engine_uncertain_cadence()
+    test_engine_uncertain_stale_no_stall()
     test_finetune_extract_segments()
     print('\nOK — все smoke-тесты онлайн-системы пройдены')
