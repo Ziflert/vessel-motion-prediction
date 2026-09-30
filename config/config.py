@@ -110,25 +110,27 @@ class Config:
     # ВРЕМЕННЫЕ ПАРАМЕТРЫ
     # =========================================================================
     sequence_length: int = 120  # История (шагов)
-    prediction_horizon: int = 20  # Горизонт предсказания (шагов)
-    prediction_step: int = 1
+    prediction_horizon: int = 20  # ЧИСЛО ВЫХОДОВ модели (BUG-LSTM-03: каждый выход
+                                  # отстоит от предыдущего на prediction_step шагов
+                                  # по времени; при step=1 — это и есть горизонт в шагах)
+    prediction_step: int = 1     # Шаг по времени между выходными шагами
 
     # =========================================================================
     # АРХИТЕКТУРА МОДЕЛИ
     # =========================================================================
+    # model_type — декларативная метка (попадает в manifest['model']['type']);
+    # BUG-LSTM-10: трансформерные ветки (num_attention_heads, transformer_ff_dim,
+    # transformer_num_layers) удалены — текущая Seq2Seq ветка (LSTM + attention)
+    # их не использовала, изменение не меняло сеть и вводило в заблуждение свипы.
     model_type: str = "lstm"
 
     encoder_hidden_dims: List[int] = field(default_factory=lambda: [128, 96])
-    encoder_dropout: float = 0.15
+    encoder_dropout: float = 0.15   # dropout между полносвязными слоями feature extractor
 
     temporal_hidden_size: int = 128
     temporal_num_layers: int = 2
-    temporal_dropout: float = 0.1
+    temporal_dropout: float = 0.1   # dropout МЕЖДУ слоями LSTM (BUG-LSTM-02: реально используется)
     bidirectional: bool = False
-
-    num_attention_heads: int = 4
-    transformer_ff_dim: int = 256
-    transformer_num_layers: int = 2
 
     decoder_hidden_dim: int = 96
     decoder_dropout: float = 0.1
@@ -145,6 +147,7 @@ class Config:
     num_epochs: int = 150
     early_stopping_patience: int = 25
     max_grad_norm: float = 1.0
+    teacher_forcing_ratio: float = 0.5  # Вероятность подачи реального target на шаг декодера
 
     # =========================================================================
     # ОПТИМИЗАЦИИ
@@ -336,7 +339,10 @@ class Config:
 
     @property
     def prediction_steps(self) -> int:
-        return self.prediction_horizon // self.prediction_step
+        """Число выходных шагов модели (= prediction_horizon; BUG-LSTM-03:
+        horizon — число выходов, а не физическое время; физический интервал
+        между выходами задаёт prediction_step)."""
+        return self.prediction_horizon
 
     def get_speed_estimate(self) -> str:
         """Оценка скорости обучения"""

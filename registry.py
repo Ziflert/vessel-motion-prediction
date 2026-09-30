@@ -314,6 +314,11 @@ def config_from_manifest(manifest: Dict):
     """
     Восстанавливает Config из manifest.json (БЕЗ pickle).
     Используется при inference — гарантирует правильные признаки/цели/архитектуру.
+
+    BUG-LSTM-07: восстанавливаются ВСЕ вычислительно значимые поля
+    (prediction_step, loss_weights, weight_decay, batch_size, max_grad_norm,
+    teacher_forcing_ratio, профиль) — для старых manifest берутся дефолты,
+    для новых — записанные при обучении значения (round-trip идентичность запуска).
     """
     from config.config import Config
 
@@ -333,6 +338,8 @@ def config_from_manifest(manifest: Dict):
 
     config.sequence_length = int(model.get('sequence_length', 120))
     config.prediction_horizon = int(model.get('prediction_horizon', 20))
+    if 'prediction_step' in model:
+        config.prediction_step = int(model['prediction_step'])
     config.encoder_hidden_dims = list(model.get('encoder_hidden_dims', [128, 96]))
     config.temporal_hidden_size = int(model.get('temporal_hidden_size', 128))
     config.temporal_num_layers = int(model.get('temporal_num_layers', 2))
@@ -345,8 +352,22 @@ def config_from_manifest(manifest: Dict):
         config.temporal_dropout = float(model['temporal_dropout'])
     if 'decoder_dropout' in model:
         config.decoder_dropout = float(model['decoder_dropout'])
+    # Профиль — информационно (признаки уже заданы; не перезапускает __post_init__)
+    if features.get('profile'):
+        config.profile = str(features['profile'])
+    # Обучаемые параметры: round-trip идентичность запуска (BUG-LSTM-07)
+    if 'batch_size' in training:
+        config.batch_size = int(training['batch_size'])
     if 'learning_rate' in training:
         config.learning_rate = float(training['learning_rate'])
+    if 'weight_decay' in training:
+        config.weight_decay = float(training['weight_decay'])
+    if 'max_grad_norm' in training:
+        config.max_grad_norm = float(training['max_grad_norm'])
+    if 'loss_weights' in training:
+        config.loss_weights = dict(training['loss_weights'])
+    if 'teacher_forcing_ratio' in training:
+        config.teacher_forcing_ratio = float(training['teacher_forcing_ratio'])
     config.device = 'cpu'
 
     return config

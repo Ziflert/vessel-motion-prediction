@@ -24,6 +24,7 @@ class VesselPredictor(nn.Module):
             temporal_hidden_size=config.temporal_hidden_size,
             temporal_num_layers=config.temporal_num_layers,
             dropout=config.encoder_dropout,
+            temporal_dropout=config.temporal_dropout,
             bidirectional=config.bidirectional
         )
 

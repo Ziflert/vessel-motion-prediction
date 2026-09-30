@@ -28,7 +28,9 @@ class Attention(nn.Module):
 
         # Повторяем hidden state для каждого шага времени энкодера
         # hidden: [batch_size, dec_hidden_dim] -> [batch_size, seq_len, dec_hidden_dim]
-        hidden_expanded = hidden.unsqueeze(1).repeat(1, seq_len, 1)
+        # (expand вместо repeat: без копирования памяти, результат тот же —
+        # torch.cat материализует копию один раз)
+        hidden_expanded = hidden.unsqueeze(1).expand(-1, seq_len, -1)
 
         # Конкатенируем hidden декодера и outputs энкодера
         # energy: [batch_size, seq_len, dec_hidden_dim]

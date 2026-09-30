@@ -143,8 +143,11 @@ class Trainer:
             batch_x = batch_x.to(self.device)
             batch_y = batch_y.to(self.device)
 
-            # Forward pass
-            predictions = self.model(batch_x, target=batch_y)
+            # Forward pass (teacher forcing — из конфига; BUG-LSTM-07:
+            # ratio восстанавливается из manifest и реально участвует в обучении)
+            predictions = self.model(
+                batch_x, target=batch_y,
+                teacher_forcing_ratio=getattr(self.config, 'teacher_forcing_ratio', 0.5))
 
             # Loss calculation
             loss_dict = self.criterion(predictions, batch_y)
@@ -182,16 +185,23 @@ class Trainer:
         }
 
     def evaluate(self, loader: DataLoader) -> Dict[str, float]:
-        """Валидация / Тестирование"""
+        """Валидация / Тестирование
+
+        BUG-LSTM-05: loss усредняется по ЧИСЛУ ОБЪЕКТОВ (samples), а не по batch —
+        при drop_last=False последний batch меньше, но раньше имел тот же вес,
+        что и полный, что смещало val loss, scheduler, early stopping и выбор
+        checkpoint. Per-variable loss взвешен аналогично.
+        """
         self.model.eval()
         total_loss = 0
         total_mse = 0
         total_huber = 0
         total_smoothness = 0
+        n_samples = 0
         all_preds = []
         all_targets = []
 
-        # Аккумулятор для per-variable losses
+        # Аккумулятор для per-variable losses (суммы, взвешенные по batch)
         per_var_accumulator = {}
 
         with torch.no_grad():
@@ -202,34 +212,45 @@ class Trainer:
                 # Forward pass (без teacher forcing)
                 predictions = self.model(batch_x, target=None, teacher_forcing_ratio=0.0)
 
-                # Loss
+                # Loss (взвешенный по числу объектов в batch)
+                n_batch = batch_y.shape[0]
                 loss_dict = self.criterion(predictions, batch_y)
-                total_loss += loss_dict['total_loss'].item()
-                total_mse += loss_dict['mse_loss'].item()
-                total_huber += loss_dict['huber_loss'].item()
-                total_smoothness += loss_dict['smoothness_loss'].item()
+                total_loss += loss_dict['total_loss'].item() * n_batch
+                total_mse += loss_dict['mse_loss'].item() * n_batch
+                total_huber += loss_dict['huber_loss'].item() * n_batch
+                total_smoothness += loss_dict['smoothness_loss'].item() * n_batch
+                n_samples += n_batch
 
-                # Накапливаем per-variable losses
+                # Накапливаем per-variable losses (взвешенные по batch)
                 if loss_dict['per_variable_loss']:
                     for var_name, var_loss in loss_dict['per_variable_loss'].items():
                         if var_name not in per_var_accumulator:
-                            per_var_accumulator[var_name] = []
-                        per_var_accumulator[var_name].append(var_loss)
+                            per_var_accumulator[var_name] = 0.0
+                        per_var_accumulator[var_name] += float(var_loss) * n_batch
 
                 all_preds.append(predictions.cpu().numpy())
                 all_targets.append(batch_y.cpu().numpy())
 
-        # Усредняем
-        n = len(loader)
-        avg_loss = total_loss / n
-        avg_mse = total_mse / n
-        avg_huber = total_huber / n
-        avg_smoothness = total_smoothness / n
+        # BUG-LSTM-08: пустой loader — явная ошибка вместо деления на ноль /
+        # np.concatenate([]) с неинформативным сообщением
+        if n_samples == 0:
+            raise ValueError(
+                'Пустой DataLoader: ни одного объекта для валидации/теста. '
+                'Проверьте длину выборки относительно параметров окна '
+                f'(sequence_length={self.config.sequence_length}, '
+                f'prediction_horizon={self.config.prediction_horizon}).')
 
-        # Усредняем per-variable losses
-        per_var_losses = {}
-        for var_name, losses in per_var_accumulator.items():
-            per_var_losses[var_name] = np.mean(losses)
+        # Усредняем по объектам
+        avg_loss = total_loss / n_samples
+        avg_mse = total_mse / n_samples
+        avg_huber = total_huber / n_samples
+        avg_smoothness = total_smoothness / n_samples
+
+        # Усредняем per-variable losses по объектам
+        per_var_losses = {
+            var_name: losses_sum / n_samples
+            for var_name, losses_sum in per_var_accumulator.items()
+        }
 
         # Вычисление метрик (MAE, RMSE, R2) в масштабированном пространстве
         all_preds = np.concatenate(all_preds, axis=0)

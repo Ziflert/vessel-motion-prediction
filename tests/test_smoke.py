@@ -8,7 +8,8 @@ Smoke-тесты проекта (запускаются БЕЗ torch — с за
   - физические метрики и skill score;
   - реестр экспериментов (manifest roundtrip, resolve_run, CSV);
   - восстановление Config из manifest (в т.ч. для мигрированной legacy-модели);
-  - инженерию признаков в актуальном профиле full_prediction.
+  - инженерию признаков в актуальном профиле full_prediction;
+  - regression-тесты аудита 2026-09-29 (BUG-LSTM-01/03/04/07).
 
 Запуск:  py -3.13 tests/test_smoke.py   (или pytest tests/test_smoke.py)
 """
@@ -37,6 +38,9 @@ if 'torch' not in sys.modules:
         fake_torch.backends = types.SimpleNamespace(
             cudnn=types.SimpleNamespace(benchmark=False))
         fake_torch.device = lambda *a, **k: 'cpu'
+        # VesselDataset.__getitem__ использует torch.from_numpy (заглушка:
+        # возвращаем обычный numpy-массив)
+        fake_torch.from_numpy = lambda arr: np.asarray(arr)
         sys.modules['torch'] = fake_torch
 
         fake_utils = types.ModuleType('torch.utils')
@@ -271,11 +275,14 @@ def test_config_full_profile_engineering():
 
     cfg = Config(verbose=False)
     assert cfg.profile == 'full_prediction'
-    assert cfg.feature_engineering == {'cyclic_encoding': True, 'relative_wave_angle': True}
+    assert cfg.feature_engineering == {'cyclic_encoding': True, 'relative_wave_angle': True,
+                                       'relative_wind_angle': True}
 
     assert 'Wave.direction(sin)' in cfg.feature_columns
     assert 'Wave.direction(градусы)' not in cfg.feature_columns
     assert 'Rel.Wave.angle(sin)' in cfg.feature_columns
+    assert 'Rel.Wind.angle(sin)' in cfg.feature_columns, \
+        'КУ ветра (relative_wind_angle) должен входить в итоговые признаки'
     assert 'Rudder State(градусы)' in cfg.feature_columns
     assert 'RPM(Обороты в минуту)' in cfg.feature_columns
     assert 'Course(градусы)' not in cfg.feature_columns          # заменён на sin/cos
@@ -293,6 +300,221 @@ def test_config_full_profile_engineering():
     print('OK  test_config_full_profile_engineering')
 
 
+# ---------------------------------------------------------------------------
+# 7. Regression: BUG-LSTM-01 — relative_wind_angle в online FE
+# ---------------------------------------------------------------------------
+
+def test_extract_fe_params_relative_wind():
+    from online.sources import extract_fe_params
+    from data.features import engineer_feature_columns
+
+    # manifest с явным relative_wind_angle=True: параметр ДОЛЖЕН передаваться
+    manifest = {'features': {'feature_engineering': {
+        'cyclic_encoding': True, 'relative_wave_angle': True,
+        'relative_wind_angle': True}}}
+    fe = extract_fe_params(manifest)
+    assert fe['relative_wind_angle'] is True, \
+        'BUG-LSTM-01: relative_wind_angle потерян при online-инженерии'
+    assert fe['cyclic'] is True and fe['relative_wave_angle'] is True
+
+    # Старый manifest без ключа relative_wind_angle: на момент обучения
+    # параметр применялся (дефолт True) — fallback True
+    fe_old = extract_fe_params({'features': {'feature_engineering': {
+        'cyclic_encoding': True, 'relative_wave_angle': True}}})
+    assert fe_old['relative_wind_angle'] is True
+
+    # manifest без feature_engineering: без FE (все False)
+    fe_none = extract_fe_params({})
+    assert fe_none == {'cyclic': False, 'relative_wave_angle': False,
+                       'relative_wind_angle': False}
+
+    # Round-trip: список итоговых колонок по fe-параметрам manifest совпадает
+    # со списком колонок модели (train = online FE)
+    from config.config import Config
+    cfg = Config(verbose=False)
+    raw_cols, _, _ = Config.get_profile_config(cfg.profile)   # ИСХОДНЫЕ признаки профиля
+    eng_cols = engineer_feature_columns(
+        raw_cols, cyclic=fe['cyclic'],
+        relative_wave_angle=fe['relative_wave_angle'],
+        relative_wind_angle=fe['relative_wind_angle'])
+    assert eng_cols == cfg.feature_columns, 'train/online FE рассинхронизированы'
+
+    print('OK  test_extract_fe_params_relative_wind')
+
+
+# ---------------------------------------------------------------------------
+# 8. Regression: BUG-LSTM-03 — prediction_step согласован с числом выходов
+# ---------------------------------------------------------------------------
+
+def test_dataset_prediction_step():
+    from data.dataset import VesselDataset
+
+    class Cfg:
+        pass
+
+    cfg = Cfg()
+    cfg.sequence_length = 5
+    cfg.prediction_horizon = 4
+    cfg.prediction_step = 2
+    cfg.feature_columns = ['a']
+    cfg.target_columns = ['b']
+
+    # Один непрерывный сегмент: 5 + (4-1)*2 + 1 = 12 строк достаточно
+    seg = pd.DataFrame({'a': np.arange(12.0), 'b': np.arange(12.0) * 3})
+    ds = VesselDataset(seg, cfg, fit_scalers=True)
+    assert len(ds) == 1, f'ожидалось 1 окно, получено {len(ds)}'
+
+    x, y = ds[0]
+    # Число выходов ВСЕГДА prediction_horizon (а не horizon // step)
+    assert y.shape[0] == cfg.prediction_horizon, \
+        f'число выходов {y.shape[0]} != prediction_horizon {cfg.prediction_horizon}'
+    assert x.shape[0] == cfg.sequence_length
+    # Выходные шаги отстоят на prediction_step: для окна с start=0 targets —
+    # строки 5, 7, 9, 11 (шаг 2 по времени; сравнение в масштабированном
+    # пространстве — скалеры обучены на этом же сегменте)
+    expected = ds.scalers['targets'].transform(
+        (np.array([5, 7, 9, 11]) * 3.0).reshape(-1, 1))
+    assert np.allclose(np.asarray(y), expected), \
+        f'выходные шаги не отстоят на prediction_step: {np.asarray(y)}'
+
+    # Сегмент из 13 строк: окна start=0 и start=1 (по 12 строк каждое)
+    seg13 = pd.DataFrame({'a': np.arange(13.0), 'b': np.arange(13.0) * 3})
+    ds13 = VesselDataset(seg13, cfg, fit_scalers=False, scalers=ds.scalers)
+    assert len(ds13) == 2, f'ожидалось 2 окна, получено {len(ds13)}'
+    _, y13 = ds13[1]
+    assert y13.shape[0] == 4
+    # Окно start=1: targets — строки 6, 8, 10, 12
+    expected1 = ds.scalers['targets'].transform(
+        (np.array([6, 8, 10, 12]) * 3.0).reshape(-1, 1))
+    assert np.allclose(np.asarray(y13), expected1)
+
+    # Шаг 1 — поведение как раньше (backward compat)
+    cfg1 = Cfg()
+    cfg1.sequence_length = 5
+    cfg1.prediction_horizon = 4
+    cfg1.prediction_step = 1
+    cfg1.feature_columns = ['a']
+    cfg1.target_columns = ['b']
+    ds1 = VesselDataset(seg13, cfg1, fit_scalers=False, scalers=ds.scalers)
+    x1, y1 = ds1[0]
+    assert y1.shape[0] == 4
+    expected_s1 = ds.scalers['targets'].transform(
+        (np.arange(5.0, 9.0) * 3.0).reshape(-1, 1))
+    assert np.allclose(np.asarray(y1), expected_s1)
+
+    print('OK  test_dataset_prediction_step')
+
+
+# ---------------------------------------------------------------------------
+# 9. Regression: BUG-LSTM-04 — короткий хвост чанкования не в train
+# ---------------------------------------------------------------------------
+
+def test_split_segments_tail():
+    try:
+        import run_training  # noqa: F401
+    except ImportError:
+        print('SKIP test_split_segments_tail (нет torch)')
+        return
+
+    from run_training import split_segments
+
+    rng = np.random.default_rng(0)
+    # 12499 строк: 12 полных чанков + хвост 499 строк (числа из аудита)
+    df = pd.DataFrame({f'c{i}': rng.uniform(0, 10, 12499) for i in range(3)})
+    train_segs, val_segs, test_segs, test_row_ranges = split_segments(df)
+
+    n_train = sum(len(s) for s in train_segs)
+    n_val = sum(len(s) for s in val_segs)
+    n_test = sum(len(s) for s in test_segs)
+    assert n_train + n_val + n_test == 12 * 1000, \
+        f'хвост 499 строк попал в train/val/test: {n_train + n_val + n_test}'
+
+    # Доли внутри каждого чанка: 0.7 / 0.15 / 0.15
+    assert abs(n_train / (12 * 1000) - 0.7) < 0.01
+    assert abs(n_test / (12 * 1000) - 0.15) < 0.01
+
+    # test_row_ranges покрывают только test-строки обработанных чанков
+    for (s, e) in test_row_ranges:
+        assert e - s == 150
+
+    # Полный чанк — как раньше
+    df2 = pd.DataFrame({'a': rng.uniform(0, 10, 1000)})
+    t2, v2, te2, r2 = split_segments(df2)
+    assert sum(len(s) for s in t2) == 700
+    assert sum(len(s) for s in v2) == 150
+    assert sum(len(s) for s in te2) == 150
+
+    # Одиночный маленький df (без полных чанков) — пропорциональный сплит
+    # сохраняется (иначе ломались бы quick-проверки пайплайна)
+    df_small = pd.DataFrame({'a': rng.uniform(0, 10, 600)})
+    t3, v3, te3, r3 = split_segments(df_small)
+    assert sum(len(s) for s in t3) == 420   # int(600*0.7)
+    assert sum(len(s) for s in te3) == 90   # int(600*0.85) - 420
+
+    # Хвост короче min_chunk (50 < 100 при полных чанках) — отброшен
+    df_tail = pd.DataFrame({f'c{i}': rng.uniform(0, 10, 12050) for i in range(2)})
+    t4, v4, te4, r4 = split_segments(df_tail)
+    assert sum(len(s) for s in t4) + sum(len(s) for s in v4) + \
+        sum(len(s) for s in te4) == 12 * 1000
+
+    print('OK  test_split_segments_tail')
+
+
+# ---------------------------------------------------------------------------
+# 10. Regression: BUG-LSTM-07 — round-trip конфигурации из manifest
+# ---------------------------------------------------------------------------
+
+def test_config_from_manifest_roundtrip():
+    from registry import config_from_manifest
+
+    manifest = {
+        'features': {
+            'profile': 'motion_core_prediction',
+            'input': ['a', 'b'], 'targets': ['c'],
+            'target_weights': {'c': 1.5},
+        },
+        'model': {
+            'sequence_length': 60, 'prediction_horizon': 7, 'prediction_step': 2,
+            'encoder_hidden_dims': [32], 'temporal_hidden_size': 16,
+            'temporal_num_layers': 2, 'decoder_hidden_dim': 16,
+            'bidirectional': False, 'use_attention': True,
+            'encoder_dropout': 0.2, 'temporal_dropout': 0.3, 'decoder_dropout': 0.05,
+        },
+        'training': {
+            'batch_size': 32, 'learning_rate': 0.0007, 'weight_decay': 3e-4,
+            'max_grad_norm': 0.5, 'loss_weights': {'mse': 2.0, 'huber': 0.0,
+                                                   'smoothness': 0.05},
+            'teacher_forcing_ratio': 0.7,
+        },
+    }
+
+    cfg = config_from_manifest(manifest)
+    assert cfg.profile == 'motion_core_prediction'
+    assert cfg.sequence_length == 60
+    assert cfg.prediction_horizon == 7
+    assert cfg.prediction_step == 2
+    assert cfg.batch_size == 32
+    assert cfg.learning_rate == 0.0007
+    assert cfg.weight_decay == 3e-4
+    assert cfg.max_grad_norm == 0.5
+    assert cfg.loss_weights == {'mse': 2.0, 'huber': 0.0, 'smoothness': 0.05}
+    assert cfg.teacher_forcing_ratio == 0.7
+    assert cfg.temporal_dropout == 0.3
+    assert cfg.device == 'cpu'
+
+    # Старый manifest без этих ключей — дефолты, без исключений
+    cfg_old = config_from_manifest({
+        'features': {'input': ['a'], 'targets': ['b']},
+        'model': {'sequence_length': 10, 'prediction_horizon': 3},
+    })
+    assert cfg_old.sequence_length == 10
+    assert cfg_old.prediction_horizon == 3
+    assert cfg_old.prediction_step == 1
+    assert cfg_old.batch_size == 48
+
+    print('OK  test_config_from_manifest_roundtrip')
+
+
 if __name__ == '__main__':
     test_feature_engineering_consistency()
     test_dataset_segment_windows()
@@ -300,4 +522,8 @@ if __name__ == '__main__':
     test_registry()
     test_config_from_manifest()
     test_config_full_profile_engineering()
+    test_extract_fe_params_relative_wind()
+    test_dataset_prediction_step()
+    test_split_segments_tail()
+    test_config_from_manifest_roundtrip()
     print('\nВсе smoke-тесты пройдены ✓')

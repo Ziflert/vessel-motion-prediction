@@ -66,7 +66,10 @@ def evaluate_baselines(loader, config, target_scaler, device: str = 'cpu') -> Di
         # пространстве — допустимо, т.к. масштабирование линейное)
         hist = batch_x[:, -K:, feat_idx]                             # [B, K, T]
         slope = (hist[:, -1, :] - hist[:, 0, :]) / (K - 1)           # [B, T]
-        horizon = config.prediction_horizon
+        # BUG-LSTM-09: используем ФАКТИЧЕСКОЕ число выходных шагов target
+        # (batch_y.shape[1]), а не config.prediction_horizon — при ненулевом
+        # prediction_step возможны несовместимые массивы
+        horizon = batch_y.shape[1]
         steps = torch.arange(1, horizon + 1, device=device, dtype=torch.float32)
         pred_lin = hist[:, -1, :].unsqueeze(1) + slope.unsqueeze(1) * steps.view(1, -1, 1)
         linear_scaled.append(pred_lin.cpu().numpy())
@@ -74,9 +77,9 @@ def evaluate_baselines(loader, config, target_scaler, device: str = 'cpu') -> Di
         targets_scaled.append(batch_y.cpu().numpy())
 
     persistence_scaled = np.concatenate(persistence_scaled, axis=0)
-    # Persistence повторяется по шагам горизонта
+    # Persistence повторяется по фактическому числу шагов горизонта target
     persistence_scaled = np.repeat(
-        persistence_scaled[:, np.newaxis, :], config.prediction_horizon, axis=1
+        persistence_scaled[:, np.newaxis, :], horizon, axis=1
     )
     linear_scaled = np.concatenate(linear_scaled, axis=0)
     targets_scaled = np.concatenate(targets_scaled, axis=0)

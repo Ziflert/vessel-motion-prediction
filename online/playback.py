@@ -88,6 +88,7 @@ def main():
         df_raw.head(cfg.buffer_multiplier * max(predictor.config.sequence_length, 600)),
         cyclic=fe_params['cyclic'],
         relative_wave_angle=fe_params['relative_wave_angle'],
+        relative_wind_angle=fe_params.get('relative_wind_angle', False),
     )
     missing += [c for c in predictor.config.feature_columns if c not in df_probe.columns]
     if missing:

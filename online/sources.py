@@ -37,14 +37,23 @@ def load_raw_csv(data_path) -> pd.DataFrame:
 
 
 def extract_fe_params(manifest: dict) -> dict:
-    """Параметры инженерии признаков из manifest модели (fallback: без FE)."""
+    """Параметры инженерии признаков из manifest модели (fallback: без FE).
+
+    BUG-LSTM-01: возвращаются ВСЕ три параметра, включая relative_wind_angle.
+    Раньше он терялся: для manifest с relative_wind_angle=True не создавались
+    Rel.Wind.angle(sin/cos), хотя эти колонки входят в feature_columns модели
+    → несовместимый набор признаков в online inference.
+    Для старых manifest, где ключ relative_wind_angle отсутствует, считается True:
+    на момент их обучения параметр применялся (дефолт Config — True).
+    """
     eng = (manifest or {}).get('features', {}).get('feature_engineering')
     if eng:
         return {
-            'cyclic': eng['cyclic_encoding'],
-            'relative_wave_angle': eng['relative_wave_angle'],
+            'cyclic': bool(eng['cyclic_encoding']),
+            'relative_wave_angle': bool(eng['relative_wave_angle']),
+            'relative_wind_angle': bool(eng.get('relative_wind_angle', True)),
         }
-    return {'cyclic': False, 'relative_wave_angle': False}
+    return {'cyclic': False, 'relative_wave_angle': False, 'relative_wind_angle': False}
 
 
 # ============================================================================

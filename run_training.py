@@ -48,7 +48,9 @@ def split_segments(df: pd.DataFrame, chunk_size: int = 1000,
     последовательностей нарезаются внутри сегментов (см. VesselDataset),
     поэтому:
       - нет утечки: окна не пересекают границы между сплитами;
-      - нет «склеенных» окон через временные разрывы между чанками.
+      - нет «склеенных» окон через временные разрывы между чанками;
+      - неполный последний чанк (хвост) отбрасывается с явной записью
+        (BUG-LSTM-04: не включается в train молча).
     """
     num_chunks = len(df) // chunk_size
     train_segments, val_segments, test_segments = [], [], []
@@ -61,8 +63,22 @@ def split_segments(df: pd.DataFrame, chunk_size: int = 1000,
             break
 
         chunk = df.iloc[start_idx:end_idx]
-        if len(chunk) < min_chunk:
-            train_segments.append(chunk)
+        # BUG-LSTM-04: короткий хвост НЕ включается в train молча:
+        #  - неполный последний чанк (при наличии полных) отбрасывается
+        #    с явной записью причины — иначе часть записи, отнесённая
+        #    политикой сплита к train-доле хвоста (например 349 из 499 строк
+        #    записи в 12499 строк), искажает фиксированное разбиение;
+        #  - сегмент короче min_chunk тоже отбрасывается (раньше молча
+        #    целиком попадал в train);
+        #  - ОДНОКА маленький df (меньше chunk_size, без полных чанков)
+        #    сохраняет пропорциональный сплит — иначе ломаются quick-проверки.
+        is_tail_remainder = (i == num_chunks and num_chunks > 0
+                             and len(chunk) < chunk_size)
+        if len(chunk) < min_chunk or is_tail_remainder:
+            reason = ('неполный последний чанк (хвост)' if is_tail_remainder
+                      else 'короче min_chunk')
+            print(f"  ⚠ split: хвост/чанк {len(chunk)} строк ({reason}) отброшен — "
+                  f"не включён в train/val/test")
             continue
 
         n = len(chunk)
@@ -189,6 +205,10 @@ def main():
     parser.add_argument('--no-relative-wind-angle', action='store_true',
                         help='Ф2 ablation: отключить КУ ветра (relative_wind_angle) — '
                              'КУСОВОЙ УГОЛ ветра не подаётся')
+    parser.add_argument('--deterministic', action='store_true',
+                        help='BUG-LSTM-06: детерминированный режим (cuDNN benchmark off, '
+                             'deterministic algorithms) — CUDA-прогоны воспроизводимы, '
+                             'но медленнее. Фиксируется в manifest.')
     args = parser.parse_args()
 
     start_time = time.time()
@@ -226,6 +246,18 @@ def main():
     torch.manual_seed(config.seed)
     np.random.seed(config.seed)
     random.seed(config.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.seed)
+
+    # BUG-LSTM-06: раньше были только seed Python/NumPy/PyTorch без
+    # deterministic-настроек, при этом cudnn.benchmark=True — CUDA-прогоны
+    # могли различаться при одинаковом seed. Режим фиксируется в manifest.
+    if args.deterministic:
+        config.cudnn_benchmark = False
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        print("  ⚡ DETERMINISTIC режим: cuDNN benchmark off, deterministic algorithms")
 
     print("=" * 70)
     print("VESSEL MOTION PREDICTION - Training (registry-based versioning)")
@@ -406,11 +438,18 @@ def main():
         'num_epochs': config.num_epochs,
         'early_stopping_patience': config.early_stopping_patience,
         'max_grad_norm': config.max_grad_norm,
-        'loss_weights': {'mse': 1.0, 'huber': 0.5, 'smoothness': 0.1},
         'loss_weights': dict(config.loss_weights),
-        'teacher_forcing_ratio': 0.5,
+        'teacher_forcing_ratio': getattr(config, 'teacher_forcing_ratio', 0.5),
         'seed': config.seed,
         'device': str(device),
+        'reproducibility': {
+            'deterministic_mode': bool(args.deterministic),
+            'cuda_manual_seed_all': bool(torch.cuda.is_available()),
+            'cudnn_benchmark': bool(config.cudnn_benchmark),
+            'note': ('воспроизводимые CUDA-прогоны (--deterministic)' if args.deterministic
+                     else 'CUDA-прогоны могут различаться при одинаковом seed; '
+                          'для воспроизводимости используйте --deterministic'),
+        },
         'quick_test': bool(args.data_limit or args.max_epochs),
         'overrides': {'lr': args.lr, 'roll_weight': args.roll_weight,
                       'huber_weight': args.huber_weight,

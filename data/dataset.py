@@ -27,6 +27,13 @@ class VesselDataset(Dataset):
         self.prediction_horizon = config.prediction_horizon
         self.prediction_step = config.prediction_step
 
+        # BUG-LSTM-03: семантика зафиксирована — prediction_horizon это ЧИСЛО
+        # ВЫХОДОВ модели (каждый выход отстоит от предыдущего на prediction_step
+        # шагов по времени). Окно требует sequence_length +
+        # (prediction_horizon - 1) * prediction_step + 1 строк; targets
+        # возвращаются с шагом prediction_step (шаг 1 — как раньше).
+        self.window_span = self.sequence_length + (self.prediction_horizon - 1) * self.prediction_step + 1
+
         segments = list(data) if isinstance(data, (list, tuple)) else [data]
         segments = [s for s in segments if len(s) > 0]
 
@@ -78,7 +85,7 @@ class VesselDataset(Dataset):
 
         # 4. ОПТИМИЗАЦИЯ: Предвычисляем валидные индексы
         total_len = len(self.feature_data)
-        required_len = self.sequence_length + self.prediction_horizon
+        required_len = self.window_span
 
         # Окно [start, start + required_len) валидно, если первый и последний
         # элементы лежат в одном сегменте (границы сегментов монотонны)
@@ -109,9 +116,11 @@ class VesselDataset(Dataset):
         feat_end = start_idx + self.sequence_length
         x = self.feature_data[start_idx:feat_end]
 
-        # Целевая последовательность
+        # Целевая последовательность: prediction_horizon выходов с шагом
+        # prediction_step по времени (BUG-LSTM-03: число выходов ВСЕГДА равно
+        # prediction_horizon — согласовано с моделью/бейзлайнами/метриками)
         target_start = feat_end
-        target_end = target_start + self.prediction_horizon
+        target_end = target_start + (self.prediction_horizon - 1) * self.prediction_step + 1
         y = self.target_data[target_start:target_end:self.prediction_step]
 
         # ОПТИМИЗАЦИЯ: Используем from_numpy вместо FloatTensor для ускорения
@@ -163,6 +172,20 @@ def create_dataloaders(train_data, val_data, test_data, config, extra_train_data
     test_dataset = VesselDataset(test_data, config, scalers=scalers, fit_scalers=False)
     print(f"  Segments: {test_dataset.n_segments}")
     print(f"  Valid sequences: {len(test_dataset)}")
+
+    # BUG-LSTM-08: защита от пустых выборок (сегмент короче окна → пустой Dataset;
+    # Trainer делит на ноль, а np.concatenate([]) даёт неинформативную ошибку)
+    required_rows = (config.sequence_length + (config.prediction_horizon - 1)
+                     * config.prediction_step + 1)
+    empty_parts = [name for name, ds in [('train', train_dataset), ('val', val_dataset),
+                                         ('test', test_dataset)] if len(ds) == 0]
+    if empty_parts:
+        raise ValueError(
+            f'Пустые выборки: {", ".join(empty_parts)} — ни один сегмент не длиннее '
+            f'{required_rows} строк (sequence_length={config.sequence_length}, '
+            f'prediction_horizon={config.prediction_horizon}, '
+            f'prediction_step={config.prediction_step}). '
+            f'Увеличьте объём данных или уменьшите параметры окна.')
 
     # 4. ОПТИМИЗИРОВАННЫЕ DataLoader'ы
     print(f"\nCreating Optimized DataLoaders:")
