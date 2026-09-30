@@ -10,6 +10,17 @@
     --text:#d8e1ee; --dim:#7b8ba1; --accent:#3aa2ff; --ok:#35c777;
     --warn:#f5a623; --err:#ef5466;
   }
+  /* дневной режим: переключатель кнопкой 🌙/☀ в панели */
+  body.light { --bg:#f2f5f9; --panel:#ffffff; --panel2:#eef2f7; --border:#c9d3e0;
+    --text:#1a2230; --dim:#5d6b7e; --accent:#0b6fd6; --ok:#188a4e;
+    --warn:#b97709; --err:#d33a4c; }
+  body.light select, body.light input, body.light button, body.light textarea { background:#fff; }
+  body.light button.primary, body.light button.danger, body.light button.ok { color:#fff; }
+  body.light button.tab { color:var(--dim); }
+  body.light .tab.active { color:var(--text); }
+  body.light pre.log { background:#f5f7fa; }
+  body.light .help-btn:hover { color:#fff; }
+  body.light .live-val { color:var(--accent); }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text);
     font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; height:100vh;
@@ -48,7 +59,7 @@
   .help-btn:hover { background:var(--accent); color:#0d1b12; }
   #tooltip { position:fixed; z-index:50; max-width:340px; background:#000c;
     border:1px solid var(--accent); border-radius:8px; padding:8px 10px;
-    font-size:12px; display:none; pointer-events:none; }
+    font-size:12px; display:none; pointer-events:none; color:#fff; }
   #modal-back { position:fixed; inset:0; background:#000a; display:none;
     z-index:100; align-items:center; justify-content:center; }
   #modal { background:var(--panel2); border:1px solid var(--accent);
@@ -76,6 +87,21 @@
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   @media (max-width:900px){ .grid2{grid-template-columns:1fr;} }
   #banner { padding:6px 16px; background:#12321f; color:#9fe8bb; display:none; font-weight:600; }
+  /* чипы линий графика: клик по названию — скрыть/показать, кружок — цвет */
+  .ser-chips { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; align-items:center; }
+  .ser-chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
+    border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; user-select:none; }
+  .ser-chip:hover { border-color:var(--accent); }
+  .ser-chip.off { opacity:.45; }
+  .ser-chip input[type=color] { width:24px; height:18px; padding:0; border:none;
+    background:transparent; cursor:pointer; }
+  /* чипы выбора параметров (несколько линий на графике) */
+  .chip-list { display:flex; flex-wrap:wrap; gap:6px; max-height:132px; overflow:auto;
+    min-width:300px; padding:2px; }
+  .chip-list label { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border);
+    border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--dim); }
+  .chip-list label.on { color:var(--text); border-color:var(--accent); }
+  #btn-theme { padding:7px 10px; }
 </style>
 </head>
 <body>
@@ -89,6 +115,7 @@
   <button class="tab" data-page="finetune">Дообучение</button>
   <button class="tab" data-page="registry">Реестр</button>
   <button class="tab" data-page="jobs">Задачи</button>
+  <button id="btn-theme" title="Дневной/ночной режим" style="margin-left:auto">🌙</button>
 </nav>
 <div id="banner"></div>
 <div id="tooltip"></div>
@@ -173,7 +200,9 @@
     <div class="row" style="margin:6px 0;align-items:center">
       <span class="stat" id="pr-cursor" style="color:var(--warn)"></span>
       <button id="btn-pr-reset" data-help="on-zoom-reset">⤢ Сброс масштаба</button>
+      <button id="btn-pr-snap" data-help="snapshot-test" style="margin-left:auto">📸 Snapshot</button>
     </div>
+    <div class="ser-chips" id="pr-chips"></div>
     <div id="pr-chart" style="min-height:260px"></div>
   </div>
 </section>
@@ -220,7 +249,11 @@
       <div id="tgt-bar"></div>
       <span class="stat" id="on-cursor" style="margin-left:auto;color:var(--warn)"></span>
       <button id="btn-on-reset" data-help="on-zoom-reset">⤢ Сброс масштаба</button>
+      <button id="btn-on-snap" data-help="snapshot-online">📸 Snapshot</button>
     </div>
+    <div class="ser-chips" id="on-chips"></div>
+    <div class="field" style="width:100%;margin-top:2px"><label>Линии данных (можно несколько) <span class="help-btn" data-help="on-lines">?</span></label>
+      <div id="on-lines" class="chip-list"></div></div>
     <div id="chart-wrap" style="min-height:300px"></div>
   </div>
   <div id="statusbar">
@@ -265,8 +298,8 @@
         <input id="vw-custom" type="number" min="1" value="300" style="width:90px"></div>
       <div class="field"><label>Начало, с <span class="help-btn" data-help="dt-view-start">?</span></label>
         <input id="vw-start" type="number" min="0" value="0" style="width:90px"></div>
-      <div class="field"><label>Параметр <span class="help-btn" data-help="dt-view-target">?</span></label>
-        <select id="vw-target" style="min-width:220px"></select></div>
+      <div class="field"><label>Параметры (можно несколько) <span class="help-btn" data-help="dt-view-target">?</span></label>
+        <div id="vw-targets" class="chip-list"></div></div>
       <div class="field"><label>&nbsp;</label>
         <button class="primary" id="btn-vw-show" data-help="dt-view-show">👁 Показать</button></div>
       <div class="field"><label>&nbsp;</label>
@@ -275,6 +308,7 @@
     <p style="margin:8px 0 4px">Записано всего: <b id="vw-total" style="color:var(--accent)">—</b> с
       <span id="vw-readout" style="color:var(--warn);margin-left:16px"></span>
       <button id="btn-vw-reset" style="margin-left:16px" data-help="on-zoom-reset">⤢ Сброс масштаба</button></p>
+    <div class="ser-chips" id="vw-chips"></div>
     <div id="vw-chart" style="min-height:280px"></div>
     <div id="vw-snapresult" style="margin-top:8px;font-size:12px;color:var(--ok)"></div>
   </div>
@@ -357,7 +391,7 @@
 
 <script src="/static/vendor/uplot.iife.js"></script>
 <!-- версия в query — защита от устаревшего кэша браузера (панель «не реагировала» на правки JS) -->
-<script src="/static/help.js?v=6"></script>
-<script src="/static/panel.js?v=6"></script>
+<script src="/static/help.js?v=8"></script>
+<script src="/static/panel.js?v=8"></script>
 </body>
 </html>

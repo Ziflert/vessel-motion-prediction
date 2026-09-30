@@ -11,6 +11,15 @@ const state = {
   live: [],       // выбранные параметры карточек-показателей
   uncertain: { mean: null, std: null, alert: false },  // N4/C4: лента MC-Dropout
   ws: null, u: null, prChart: null,
+  // выбор линий графика: несколько параметров + скрытие/цвета (запрос заказчика)
+  vwSel: [], vwColors: {}, vwHidden: {},
+  prColors: {}, prHidden: {}, prResult: null,
+  onColors: {},
+  // онлайн: дополнительные линии данных (выбор чипами, из сырых строк записи)
+  onExtra: [], onExtraColors: {}, onExtraHidden: {},
+  // графики скрытых вкладок после смены темы помечаются устаревшими —
+  // пересоздаются при открытии вкладки (иначе строятся шириной 10px)
+  uStale: false, prStale: false,
 };
 window.state = state; // отладка/тесты: доступ к графику из консоли
 
@@ -71,8 +80,17 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   $('page-' + t.dataset.page).classList.add('active');
   if (t.dataset.page === 'online') {
     if (!state.u) makeUPlot();
+    else if (state.uStale) {   // график был пересоздан в скрытой вкладке (10px)
+      state.u.destroy(); state.u = null; makeUPlot(); drawOnline();
+      state.uStale = false;
+    }
     renderLiveCards();
     refreshLiveSelect();   // селект карточек-показателей (F1)
+    refreshOnLines();      // чипы дополнительных линий данных
+  }
+  if (t.dataset.page === 'predict' && state.prStale && state.prResult) {
+    drawPredict(state.prResult);   // пересоздание после смены темы в скрытой вкладке
+    state.prStale = false;
   }
 }));
 
@@ -82,6 +100,152 @@ function showBanner(text, ok = true) {
   b.style.background = ok ? '#12321f' : '#4d1f24';
   b.style.color = ok ? '#9fe8bb' : '#ffb7c0';
   b.style.display = text ? 'block' : 'none';
+}
+
+// ------------------------------------------------- ДНЕВНОЙ/НОЧНОЙ РЕЖИМ
+// Переключатель 🌙/☀: класс body.light меняет CSS-переменные; выбор
+// сохраняется в localStorage. Графики пересоздаются — у них цвета осей
+// берутся из переменных темы (иначе оси нечитаемы в дневном режиме).
+function initTheme() {
+  if (localStorage.getItem('panel-theme') === 'light')
+    document.body.classList.add('light');
+  updateThemeBtn();
+}
+
+function updateThemeBtn() {
+  const b = $('btn-theme');
+  if (b) b.textContent = document.body.classList.contains('light') ? '☀' : '🌙';
+}
+
+function isLight() { return document.body.classList.contains('light'); }
+
+$('btn-theme')?.addEventListener('click', () => {
+  document.body.classList.toggle('light');
+  localStorage.setItem('panel-theme', isLight() ? 'light' : 'dark');
+  updateThemeBtn();
+  redrawAllCharts();
+});
+
+// ------------------------------------------------- ЧИПЫ ЛИНИЙ ГРАФИКА
+// У каждой линии: кружок цвета (input color) + название; клик по названию —
+// скрыть/показать линию. Скрытое состояние сохраняется между перерисовками.
+const VW_PALETTE = ['#3aa2ff', '#35c777', '#f5a623', '#e05bc4',
+                    '#b45cff', '#ef5466', '#2fd6c8', '#ffd166'];
+
+// input type=color принимает только #rrggbb — конвертируем rgba/#rgb
+function toHex6(color) {
+  if (typeof color !== 'string') return '#3aa2ff';
+  if (color.startsWith('#')) {
+    if (color.length === 7) return color;
+    if (color.length === 4)
+      return '#' + [...color.slice(1)].map(c => c + c).join('');
+    return '#3aa2ff';
+  }
+  const m = color.match(/rgba?\(([^)]+)\)/);
+  if (m) {
+    const parts = m[1].split(',').map(s => parseFloat(s));
+    if (parts.length >= 3)
+      return '#' + parts.slice(0, 3).map(v =>
+        Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+  }
+  return '#3aa2ff';
+}
+
+function buildChips(containerId, itemsGetter) {
+  const wrap = $(containerId);
+  if (!wrap) return;
+  const items = itemsGetter();
+  wrap.innerHTML = '';
+  for (const it of items) {
+    const chip = document.createElement('span');
+    chip.className = 'ser-chip' + (it.show ? '' : ' off');
+    chip.title = 'клик по названию — скрыть/показать линию';
+    const cinp = document.createElement('input');
+    cinp.type = 'color';
+    cinp.value = it.color;
+    cinp.title = 'цвет линии';
+    cinp.onclick = e => e.stopPropagation();
+    cinp.oninput = () => it.onColor(cinp.value);
+    const name = document.createElement('b');
+    name.textContent = it.label;
+    chip.appendChild(cinp);
+    chip.appendChild(name);
+    chip.onclick = () => it.onToggle();
+    wrap.appendChild(chip);
+  }
+}
+
+function serItems(u) {
+  if (!u) return [];
+  const items = [];
+  for (let s = 1; s < u.series.length; s++) {
+    const ser = u.series[s];
+    if (!ser.label) continue;
+    items.push({
+      label: ser.label,
+      // uPlot хранит цвет в _stroke (stroke после конструктора — функция-резолвер);
+      // приоритет — выбор пользователя (persistMap, обновляется кружком цвета)
+      color: toHex6((u.__persistMap && u.__persistMap[ser.label] != null)
+        ? u.__persistMap[ser.label]
+        : (typeof ser.stroke === 'function' ? ser._stroke : ser.stroke)),
+      show: ser.show !== false,
+      onToggle: () => {
+        const next = !(ser.show !== false);
+        u.setSeries(s, { show: next });
+        if (u.__persistHidden) {
+          if (next) delete u.__persistHidden[ser.label];
+          else u.__persistHidden[ser.label] = true;
+        }
+        buildChips(u.__chipsId, () => serItems(u));
+      },
+      onColor: (c) => {
+        u.setSeries(s, { stroke: c });
+        if (u.__persistMap) u.__persistMap[ser.label] = c;
+      },
+    });
+  }
+  return items;
+}
+
+function bindChips(u, chipsId, persistMap) {
+  u.__chipsId = chipsId;
+  u.__persistMap = persistMap;
+  u.__persistHidden = {};
+  buildChips(chipsId, () => serItems(u));
+}
+
+// Цвета осей из CSS-переменных текущей темы
+function axesFromTheme() {
+  const cs = getComputedStyle(document.body);
+  const stroke = (cs.getPropertyValue('--dim') || '').trim() || '#7b8ba1';
+  const grid = (cs.getPropertyValue('--border') || '').trim() || '#263141';
+  return [
+    { stroke, grid: { stroke: grid }, ticks: { stroke: grid } },
+    { stroke, grid: { stroke: grid }, ticks: { stroke: grid } },
+  ];
+}
+
+// Смена темы: пересоздать графики ТОЛЬКО видимых вкладок; скрытые помечаются
+// устаревшими и пересоздаются при открытии вкладки (иначе график строится
+// шириной 10px и «сплющивается» — баг, замеченный заказчиком).
+function redrawAllCharts() {
+  if (state.prChart) {
+    if ($('pr-chart').clientWidth >= 20) {
+      const j = state.prResult;
+      if (j) drawPredict(j);
+      state.prStale = false;
+    } else state.prStale = true;
+  }
+  if (state.u) {
+    if ($('chart-wrap').clientWidth >= 20) {
+      state.u.destroy();
+      state.u = null;
+      makeUPlot();
+      drawOnline();
+      state.uStale = false;
+    } else state.uStale = true;
+  }
+  if (vwData && state.vwSel.length && $('vw-chart').clientWidth >= 20) drawView();
 }
 
 // ------------------------------------------------------------------ ЗАГРУЗКА СПИСКОВ
@@ -222,7 +386,17 @@ $('btn-predict')?.addEventListener('click', async () => {
   $('pr-mae').innerHTML = `<table><tr><th>Цель</th><th>MAE (20 шагов)</th></tr>${rows}</table>`;
 });
 
+function prColor(label) {
+  if (!state.prColors[label]) {
+    const DEF = { 'прогноз': '#f5a623', 'факт': '#3aa2ff', 'факт (шаги)': '#35c777' };
+    const used = Object.keys(state.prColors).length;
+    state.prColors[label] = DEF[label] || VW_PALETTE[used % VW_PALETTE.length];
+  }
+  return state.prColors[label];
+}
+
 function drawPredict(j) {
+  state.prResult = j;
   const tgt = $('pr-target').value || j.targets[0];
   const ti = j.targets.indexOf(tgt);
   const hist = j.history.map(r => r[ti]);
@@ -235,28 +409,43 @@ function drawPredict(j) {
   if (j.actual) {
     sAct = [...hist.map(() => null), ...j.actual.map(r => r[ti])];
   }
+  // серии: цвета из выбора панели (кружки в чипах), скрытие — по чипам;
+  // подписи фиксированы на пересоздании (uPlot не обновляет легенду на лету)
   const series = [
     { label: 'tick' },
-    { label: 'прогноз', stroke: '#f5a623', width: 2, dash: [6, 4] },
-    { label: 'факт', stroke: '#3aa2ff', width: 1.5, points: { show: true, size: 3 } },
+    { label: 'прогноз', stroke: prColor('прогноз'), width: 2, dash: [6, 4],
+      show: !state.prHidden['прогноз'] },
+    { label: 'факт', stroke: prColor('факт'), width: 1.5,
+      points: { show: true, size: 3 }, show: !state.prHidden['факт'] },
   ];
   const data = [ticks, sPred, sHist];
-  if (j.actual) { series.push({ label: 'факт (шаги)', stroke: '#35c777', width: 1.5 }); data.push(sAct); }
-  if (!state.prChart) {
-    const prCursor = makeCursorOpts();
-    state.prChart = new uPlot({
-      width: $('pr-chart').clientWidth - 8, height: 260,
-      scales: { x: { time: false } }, series,
-      cursor: prCursor.cursor,
-      hooks: prCursor.hooks,
-    }, data, $('pr-chart'));
-    state.prChart.__readout = $('pr-cursor');
-    attachZoomReset(state.prChart, $('btn-pr-reset'));
-  } else {
-    while (state.prChart.series.length < series.length)
-      state.prChart.addSeries(series[state.prChart.series.length]);
-    state.prChart.setData(data);
+  if (j.actual) {
+    series.push({ label: 'факт (шаги)', stroke: prColor('факт (шаги)'), width: 1.5,
+                  show: !state.prHidden['факт (шаги)'] });
+    data.push(sAct);
   }
+  // перенос скрытия/цветов из предыдущего графика (в т.ч. легендный toggle)
+  if (state.prChart) {
+    for (const ser of state.prChart.series) {
+      if (!ser.label) continue;
+      if (ser.show === false) state.prHidden[ser.label] = true;
+      else delete state.prHidden[ser.label];
+    }
+    state.prChart.destroy();
+    state.prChart = null;
+  }
+  const prCursor = makeCursorOpts();
+  state.prChart = new uPlot({
+    width: Math.max(10, $('pr-chart').clientWidth - 8), height: 260,
+    scales: { x: { time: false } },
+    axes: axesFromTheme(),
+    series,
+    cursor: prCursor.cursor,
+    hooks: prCursor.hooks,
+  }, data, $('pr-chart'));
+  state.prChart.__readout = $('pr-cursor');
+  attachZoomReset(state.prChart, $('btn-pr-reset'));
+  bindChips(state.prChart, 'pr-chips', state.prColors);
 }
 
 // ------------------------------------------------------------------ ОНЛАЙН
@@ -302,31 +491,83 @@ function attachZoomReset(u, btnEl) {
   u.over.addEventListener('dblclick', reset);   // двойной клик — тоже сброс
 }
 
+function onColor(label) {
+  if (!state.onColors[label]) {
+    const DEF = {
+      'прогноз (сейчас)': '#f5a623',
+      'факт': '#3aa2ff',
+      'прогноз был (1 шаг назад)': '#35c777',
+      [`прогноз был (${HORIZON} шагов назад)`]: '#e05bc4',
+      'input_anom': '#ef5466',
+      'error_anom': '#b45cff',
+      'лента −': 'rgba(245,166,35,.5)',
+      'лента +': 'rgba(245,166,35,.5)',
+    };
+    const used = Object.keys(state.onColors).length;
+    state.onColors[label] = DEF[label] || VW_PALETTE[used % VW_PALETTE.length];
+  }
+  return state.onColors[label];
+}
+
+function onExtraColor(col) {
+  if (!state.onExtraColors[col]) {
+    const used = Object.keys(state.onExtraColors).length;
+    state.onExtraColors[col] = VW_PALETTE[(used + 1) % VW_PALETTE.length];
+  }
+  return state.onExtraColors[col];
+}
+
 function makeUPlot() {
   const wrap = $('chart-wrap');
   const cursor = makeCursorOpts();
+  // стандартные серии (цель графика) + дополнительные линии данных (чипы);
+  // индексы ленты [7, 8] фиксированы — доп. линии добавляются после них
+  const series = [
+    { label: 'tick' },
+    { label: 'прогноз (сейчас)', stroke: onColor('прогноз (сейчас)'), width: 2, dash: [6, 4] },
+    { label: 'факт', stroke: onColor('факт'), width: 1.5, points: { show: true, size: 3 } },
+    { label: 'прогноз был (1 шаг назад)', stroke: onColor('прогноз был (1 шаг назад)'), width: 1.2 },
+    { label: `прогноз был (${HORIZON} шагов назад)`, stroke: onColor(`прогноз был (${HORIZON} шагов назад)`), width: 1.2, dash: [2, 3] },
+    { label: 'input_anom', points: { show: true, size: 7 }, stroke: onColor('input_anom'), width: 1 },
+    { label: 'error_anom', points: { show: true, size: 7 }, stroke: onColor('error_anom'), width: 1 },
+    // N4/C4: лента неопределённости MC-Dropout (mean ± z·std, шир. по выбранной цели)
+    { label: 'лента −', stroke: onColor('лента −'), width: 1, dash: [2, 4] },
+    { label: 'лента +', stroke: onColor('лента +'), width: 1, dash: [2, 4] },
+  ];
+  for (const col of state.onExtra) {
+    series.push({ label: col, stroke: onExtraColor(col), width: 1.5,
+                  show: !state.onExtraHidden[col] });
+  }
   const opts = {
     width: Math.max(10, wrap.clientWidth - 8), height: 300,
     scales: { x: { time: false } },
+    axes: axesFromTheme(),
     cursor: cursor.cursor,
     hooks: cursor.hooks,
-    series: [
-      { label: 'tick' },
-      { label: 'прогноз (сейчас)', stroke: '#f5a623', width: 2, dash: [6, 4] },
-      { label: 'факт', stroke: '#3aa2ff', width: 1.5, points: { show: true, size: 3 } },
-      { label: 'прогноз был (1 шаг назад)', stroke: '#35c777', width: 1.2 },
-      { label: `прогноз был (${HORIZON} шагов назад)`, stroke: '#e05bc4', width: 1.2, dash: [2, 3] },
-      { label: 'input_anom', points: { show: true, size: 7 }, stroke: '#ef5466', width: 1 },
-      { label: 'error_anom', points: { show: true, size: 7 }, stroke: '#b45cff', width: 1 },
-      // N4/C4: лента неопределённости MC-Dropout (mean ± z·std, шир. по выбранной цели)
-      { label: 'лента −', stroke: 'rgba(245,166,35,.5)', width: 1, dash: [2, 4] },
-      { label: 'лента +', stroke: 'rgba(245,166,35,.5)', width: 1, dash: [2, 4] },
-    ],
+    series,
     bands: [{ series: [7, 8], fill: 'rgba(245,166,35,.12)' }],
   };
-  state.u = new uPlot(opts, [[], [], [], [], [], [], [], [], []], wrap);
+  state.u = new uPlot(opts, Array.from({ length: series.length }, () => []), wrap);
   state.u.__readout = $('on-cursor');
   attachZoomReset(state.u, $('btn-on-reset'));
+  bindChips(state.u, 'on-chips', state.onColors);
+  window.state.u = state.u; // отладка/приёмка: доступ из консоли
+}
+
+// Пересоздание онлайнового графика при смене набора доп. линий;
+// при скрытой вкладке — откладывается до её открытия (state.uStale)
+function rebuildOnline() {
+  if (!state.u) return;
+  if ($('chart-wrap').clientWidth < 20) { state.uStale = true; return; }
+  for (const ser of state.u.series) {
+    if (!ser.label) continue;
+    if (ser.show === false) state.onExtraHidden[ser.label] = true;
+    else delete state.onExtraHidden[ser.label];
+  }
+  state.u.destroy();
+  state.u = null;
+  makeUPlot();
+  drawOnline();
 }
 
 function drawOnline() {
@@ -372,7 +613,18 @@ function drawOnline() {
     mInp.push(mk && mk.inp ? (av ?? pv) : null);
     mErr.push(mk && mk.err ? (av ?? pv) : null);
   }
-  state.u.setData([ticks, p, a, p1, pH, mInp, mErr, lo, hi]);
+  const data = [ticks, p, a, p1, pH, mInp, mErr, lo, hi];
+  // дополнительные линии данных (выбор чипами) — из уже полученных сырых
+  // строк записи: пересчитывать ничего не нужно, tick-сообщение содержит
+  // полную строку (запрос заказчика: волна/скорость + качка на одном графике)
+  for (const col of state.onExtra) {
+    const vals = new Map();
+    for (const r of state.rows) {
+      if (r.__tick >= windowStart && r[col] != null) vals.set(r.__tick, r[col]);
+    }
+    data.push(ticks.map(t => vals.get(t) ?? null));
+  }
+  state.u.setData(data);
 }
 
 function buildTargetBar() {
@@ -409,7 +661,9 @@ $('btn-start')?.addEventListener('click', async () => {
   state.rows = [];        // сырые строки для плавающих показателей
   state.uncertain = { mean: null, std: null, alert: false };
   refreshLiveSelect();
+  refreshOnLines();   // чипы доп. линий данных (сброс/фильтр по новому CSV)
   if (!state.u) makeUPlot();
+  else rebuildOnline();   // пересоздание с текущим набором линий
   connectWs();
 });
 
@@ -420,6 +674,45 @@ $('btn-pause')?.addEventListener('click', async () => {
   await fetch('/api/session/pause', { method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paused }) });
   btn.dataset.paused = String(paused);
+});
+
+// ------------------------------------------------- SNAPSHOT ТЕСТ/ОНЛАЙН
+// PNG собирается в браузере: фиксируем ровно то, что видно — линии, цвета,
+// текущее окно. Сохраняется в results/snapshots/ через сервер.
+async function saveChartPng(u, wrapEl, name) {
+  const canvases = [...wrapEl.querySelectorAll('canvas')].filter(c => c.width > 0);
+  if (!canvases.length) { showBanner('График пуст — нечего сохранять', false); return; }
+  const w = Math.max(10, wrapEl.clientWidth - 8), h = canvases[0].clientHeight;
+  const dpr = window.devicePixelRatio || 1;
+  const off = document.createElement('canvas');
+  off.width = Math.round(w * dpr);
+  off.height = Math.round(h * dpr);
+  const ctx = off.getContext('2d');
+  const bg = (getComputedStyle(document.body).getPropertyValue('--bg') || '').trim() || '#0e131b';
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  for (const c of canvases) ctx.drawImage(c, 0, 0, w, h);
+  const b64 = off.toDataURL('image/png').split(',')[1];
+  const r = await fetch('/api/snapshots/save', { method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, png_b64: b64 }) });
+  const j = await jsonResp(r);
+  if (!r.ok) { showBanner(j.error || 'Ошибка снапшота', false); return; }
+  showBanner(`✓ Snapshot сохранён: ${j.png}`);
+}
+
+$('btn-pr-snap')?.addEventListener('click', async () => {
+  if (!state.prChart) { showBanner('Сначала выполните прогноз (🔮)', false); return; }
+  const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+  await saveChartPng(state.prChart, $('pr-chart'),
+    `predict_${($('pr-model').value || 'модель').slice(0, 40)}_${ts}`);
+});
+
+$('btn-on-snap')?.addEventListener('click', async () => {
+  if (!state.u) { showBanner('Сначала постройте график сессии (▶ Старт)', false); return; }
+  const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+  await saveChartPng(state.u, $('chart-wrap'), `online_${ts}`);
 });
 
 function connectWs() {
@@ -456,7 +749,7 @@ function handleTick(m) {
     if (state.forecasts.length > HISTORY + HORIZON * 2) state.forecasts.shift();
   }
   if (m.row) {
-    state.rows.push(m.row);
+    state.rows.push({ ...m.row, __tick: m.tick });   // tick — для доп. линий графика
     if (state.rows.length > HISTORY + HORIZON) state.rows.shift();
   }
   drawOnline();
@@ -498,6 +791,44 @@ function addLiveCard() {
   if (state.live.includes(p)) { showBanner('Такая карточка уже есть', false); return; }
   state.live.push(p);
   renderLiveCards();
+}
+
+// ------------------------------------------------- ДОП. ЛИНИИ ОНЛАЙН-ГРАФИКА
+// Чипы-чекбоксы: какие колонки записи рисовать на графике сессии вдобавок
+// к цели (волна/скорость/руль + качка). Данные берутся из уже полученных
+// строк tick-сообщений — пересчитывать ничего не нужно.
+async function refreshOnLines() {
+  const csv = $('sel-csv').value;
+  const wrap = $('on-lines');
+  if (!csv || !wrap) return;
+  const r = await fetch(`/api/dataset/columns?csv=${encodeURIComponent(csv)}`);
+  const j = await r.json();
+  const cols = j.columns || [];
+  state.onExtra = state.onExtra.filter(c => cols.includes(c));
+  if (!state.onExtra.length) {
+    // дефолт: высота волны + скорость судна (пример заказчика)
+    const def = ['Wave.Highest(метры)', 'SOG(узлы)'].filter(c => cols.includes(c));
+    state.onExtra = def;
+  }
+  wrap.innerHTML = '';
+  for (const c of cols) {
+    const lab = document.createElement('label');
+    lab.className = state.onExtra.includes(c) ? 'on' : '';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.onExtra.includes(c);
+    cb.onchange = () => {
+      if (cb.checked) { if (!state.onExtra.includes(c)) state.onExtra.push(c); }
+      else state.onExtra = state.onExtra.filter(x => x !== c);
+      lab.className = state.onExtra.includes(c) ? 'on' : '';
+      rebuildOnline();
+    };
+    const txt = document.createElement('span');
+    txt.textContent = c;
+    lab.appendChild(cb);
+    lab.appendChild(txt);
+    wrap.appendChild(lab);
+  }
 }
 
 function removeLiveCard(p) {
@@ -574,64 +905,113 @@ async function showView() {
   if (j.error) { showBanner(j.error, false); return; }
   vwData = j;
   $('vw-total').textContent = j.total_rows;
-  const tsel = $('vw-target');
-  if (tsel.dataset.for !== csv) {
-    tsel.innerHTML = j.columns.map(c => `<option>${c}</option>`).join('');
-    tsel.dataset.for = csv;
-    const roll = j.columns.find(c => c.startsWith('Roll'));
-    if (roll) tsel.value = roll;
+  // чипы выбора параметров: несколько линий на одном графике
+  if ($('vw-targets').dataset.for !== csv) {
+    $('vw-targets').dataset.for = csv;
+    // выбор сохраняем, если колонки нового дата-сета его содержат
+    state.vwSel = state.vwSel.filter(c => j.columns.includes(c));
+    if (!state.vwSel.length) {
+      // дефолт: качка + высота волны + скорость судна (запрос заказчика)
+      const def = ['Roll(градусы)', 'Vertical(Метр)', 'SOG(узлы)']
+        .filter(c => j.columns.includes(c));
+      state.vwSel = def.length ? def : [j.columns[0]];
+    }
   }
+  renderTargetChips(j.columns);
   drawView();
 }
 
-function drawView() {
-  if (!vwData) return;
-  const tgt = $('vw-target').value;
-  const vals = vwData.series[tgt] || [];
-  const data = [vwData.xs, vals];
-  const series = [
-    { label: 'с' },
-    { label: tgt, stroke: '#3aa2ff', width: 1.5, points: { show: vwData.n_points <= 200, size: 2 } },
-  ];
-  if (!vwChart) {
-    if ($('vw-chart').clientWidth < 20) return;   // вкладка скрыта — график создадим при открытии
-    const c = makeCursorOpts();
-    vwChart = new uPlot({
-      width: $('vw-chart').clientWidth - 8, height: 280,
-      scales: { x: { time: false } },
-      cursor: c.cursor, hooks: c.hooks,
-      series,
-    }, data, $('vw-chart'));
-    vwChart.__readout = $('vw-readout');
-    attachZoomReset(vwChart, $('btn-vw-reset'));
-  } else {
-    vwChart.series[1].label = tgt;
-    vwChart.setData(data);
+function renderTargetChips(columns) {
+  const wrap = $('vw-targets');
+  wrap.innerHTML = '';
+  for (const c of columns) {
+    const lab = document.createElement('label');
+    lab.className = state.vwSel.includes(c) ? 'on' : '';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = state.vwSel.includes(c);
+    cb.onchange = () => {
+      if (cb.checked) { if (!state.vwSel.includes(c)) state.vwSel.push(c); }
+      else state.vwSel = state.vwSel.filter(x => x !== c);
+      lab.className = state.vwSel.includes(c) ? 'on' : '';
+      drawView();
+    };
+    const txt = document.createElement('span');
+    txt.textContent = c;
+    lab.appendChild(cb);
+    lab.appendChild(txt);
+    wrap.appendChild(lab);
   }
+}
+
+function vwColor(col) {
+  if (!state.vwColors[col]) {
+    const used = Object.keys(state.vwColors).length;
+    state.vwColors[col] = VW_PALETTE[used % VW_PALETTE.length];
+  }
+  return state.vwColors[col];
+}
+
+function drawView() {
+  if (!vwData || !state.vwSel.length) { $('vw-chips').innerHTML = ''; return; }
+  if ($('vw-chart').clientWidth < 20) return;   // вкладка скрыта — график создадим при открытии
+  // фикс подписи: график пересоздаётся с актуальными названиями и цветами
+  // (uPlot не обновляет легенду при смене series.label на лету —
+  // поэтому подпись оставалась «roll» при переключении параметра)
+  if (vwChart) {
+    for (const ser of vwChart.series) {
+      if (!ser.label || ser.label === 'с') continue;
+      if (ser.show === false) state.vwHidden[ser.label] = true;
+      else delete state.vwHidden[ser.label];
+    }
+    vwChart.destroy();
+    vwChart = null;
+  }
+  const series = [{ label: 'с' }];
+  const data = [vwData.xs];
+  for (const col of state.vwSel) {
+    series.push({ label: col, stroke: vwColor(col), width: 1.5,
+                  points: { show: vwData.n_points <= 200, size: 2 },
+                  show: !state.vwHidden[col] });
+    data.push(vwData.series[col] || []);
+  }
+  const c = makeCursorOpts();
+  vwChart = new uPlot({
+    width: Math.max(10, $('vw-chart').clientWidth - 8), height: 280,
+    scales: { x: { time: false } },
+    axes: axesFromTheme(),
+    cursor: c.cursor, hooks: c.hooks,
+    series,
+  }, data, $('vw-chart'));
+  vwChart.__readout = $('vw-readout');
+  attachZoomReset(vwChart, $('btn-vw-reset'));
+  bindChips(vwChart, 'vw-chips', state.vwColors);
+  window.vwChart = vwChart; // отладка: доступ из консоли
 }
 
 $('btn-vw-show')?.addEventListener('click', showView);
 $('vw-csv')?.addEventListener('change', () => {
-  const tsel = $('vw-target'); tsel.dataset.for = ''; showView();
+  $('vw-targets').dataset.for = ''; showView();
 });
 $('vw-range')?.addEventListener('change', () => {
   $('vw-custom-wrap').style.display = $('vw-range').value === 'custom' ? 'flex' : 'none';
   showView();
 });
 $('vw-custom')?.addEventListener('change', showView);
-$('vw-target')?.addEventListener('change', drawView);
 
 $('btn-vw-snap')?.addEventListener('click', async () => {
-  if (!vwData) { showBanner('Сначала постройте график (👁 Показать)', false); return; }
+  if (!vwData || !state.vwSel.length) { showBanner('Сначала постройте график (👁 Показать)', false); return; }
   const body = {
     csv: $('vw-csv').value,
     start: parseInt($('vw-start').value || '0', 10),
     duration: vwRangeSec(),
-    target: $('vw-target').value,
+    targets: state.vwSel,
+    colors: state.vwColors,
+    dark: !isLight(),
   };
   const r = await fetch('/api/dataset/snapshot', { method: 'POST',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-  const j = await r.json();
+  const j = await jsonResp(r);
   if (!r.ok) { showBanner(j.error || 'Ошибка снапшота', false); return; }
   $('vw-snapresult').innerHTML =
     `✓ Сохранено: <code>${j.png}</code> и <code>${j.csv}</code> (${j.rows} строк)`;
@@ -739,6 +1119,7 @@ async function refreshJobs() {
 
 // ------------------------------------------------------------------ INIT
 async function init() {
+  initTheme();
   initHelp();
   const cfg = await jsonGet('/api/config');
   const tsel = $('tr-profile');
@@ -750,9 +1131,10 @@ async function init() {
   await Promise.all([loadModels(['sel-model', 'pr-model', 'ft-base', 'tr-init']),
                      loadCsvs(['tr-csv', 'sel-csv', 'pr-csv', 'vw-csv']),
                      refreshOverview(), refreshData(), refreshRegistry(), refreshJobs()]);
-  // просмотр данных: стартовый график (лениво, когда открыта вкладка)
+  // просмотр данных: график строится при каждом открытии вкладки
+  // (мультивыбор/цвета пересоздают график, лениво при скрытой вкладке)
   document.querySelector('.tab[data-page="data"]').addEventListener('click', () => {
-    if (!vwChart) showView();
+    showView();
   });
   showView();
   // график онлайна создаётся лениво — при первом открытии вкладки «Онлайн»
