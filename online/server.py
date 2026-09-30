@@ -936,22 +936,36 @@ class SnapshotRequest(BaseModel):
     csv: str
     start: int = 0
     duration: int = 0
-    target: str
+    targets: list[str] = []             # несколько линий на одном графике
+    colors: dict[str, str] | None = None  # колонка → цвет линии (выбор в панели)
+    dark: bool = True                   # тёмный/светлый фон графика
+    # обратная совместимость: старый одиночный параметр
+    target: str | None = None
+
+
+DEFAULT_PALETTE = ['#3aa2ff', '#35c777', '#f5a623', '#e05bc4',
+                   '#b45cff', '#ef5466', '#2fd6c8', '#ffd166']
 
 
 @app.post('/api/dataset/snapshot')
 async def api_dataset_snapshot(req: SnapshotRequest):
-    """Сохранить выбранный фрагмент: PNG-график + CSV-фрагмент,results/snapshots/."""
+    """Сохранить выбранный фрагмент: PNG-график (несколько линий, цвета
+    как в панели) + CSV-фрагмент, results/snapshots/."""
     df = _dataset_cached(req.csv)
     n_total = len(df)
     start = max(0, min(req.start, n_total - 1))
     end = n_total if req.duration <= 0 else min(n_total, start + req.duration)
-    if req.target not in df.columns:
-        return JSONResponse({'error': f'нет колонки {req.target}'}, status_code=400)
+    targets = req.targets or ([req.target] if req.target else [])
+    if not targets:
+        return JSONResponse({'error': 'не выбран ни один параметр'}, status_code=400)
+    missing = [t for t in targets if t not in df.columns]
+    if missing:
+        return JSONResponse({'error': f'нет колонок {missing}'}, status_code=400)
     frag = df.iloc[start:end]
     xs = list(range(start, end))
     rng = f'{start}-{end}с' if req.duration > 0 else f'все-{n_total}с'
-    fname_base = _sanitize_fname(f'{req.target}_{Path(req.csv).stem}_{rng}')
+    label = ' + '.join(targets)
+    fname_base = _sanitize_fname(f'{targets[0]}_и_др_{Path(req.csv).stem}_{rng}')
     out_dir = PROJECT_ROOT / 'results' / 'snapshots'
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -959,15 +973,27 @@ async def api_dataset_snapshot(req: SnapshotRequest):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(xs, pd.to_numeric(frag[req.target], errors='coerce').values,
-            lw=0.8, color='#3aa2ff')
-    ax.set_xlabel('время, с')
-    ax.set_ylabel(req.target)
-    ax.set_title(f'{req.target} — {req.csv} [{rng}]')
-    ax.grid(alpha=0.3)
+    bg = '#0e131b' if req.dark else '#ffffff'
+    fg = '#d8e1ee' if req.dark else '#1a2230'
+    fig.patch.set_facecolor(bg)
+    for i, t in enumerate(targets):
+        color = (req.colors or {}).get(t) or DEFAULT_PALETTE[i % len(DEFAULT_PALETTE)]
+        ax.plot(xs, pd.to_numeric(frag[t], errors='coerce').values,
+                lw=1.2, color=color, label=t)
+    ax.set_xlabel('время, с', color=fg)
+    ax.set_ylabel(label[:60], color=fg)
+    ax.set_title(f'{label[:80]} — {req.csv} [{rng}]', color=fg)
+    ax.grid(alpha=0.3, color=fg)
+    ax.tick_params(colors=fg)
+    if 1 < len(targets) <= 12:
+        leg = ax.legend(loc='upper right', fontsize=9)
+        for txt in leg.get_texts():
+            txt.set_color(fg)
+        leg.get_frame().set_facecolor(bg)
+        leg.get_frame().set_edgecolor(fg)
     fig.tight_layout()
     png = out_dir / f'{fname_base}.png'
-    fig.savefig(png, dpi=120)
+    fig.savefig(png, dpi=120, facecolor=bg)
     plt.close(fig)
 
     csv_out = out_dir / f'{fname_base}.csv'
@@ -975,6 +1001,32 @@ async def api_dataset_snapshot(req: SnapshotRequest):
     return {'ok': True, 'png': str(png.relative_to(PROJECT_ROOT)),
             'csv': str(csv_out.relative_to(PROJECT_ROOT)),
             'rows': len(frag), 'range': rng}
+
+
+class SavePngRequest(BaseModel):
+    name: str
+    png_b64: str
+
+
+@app.post('/api/snapshots/save')
+async def api_snapshots_save(req: SavePngRequest):
+    """Сохранить PNG-снапшот, собранный в браузере (Тест-прогноз/Онлайн):
+    фиксируем ровно то, что видно на экране — линии, цвета, текущее окно."""
+    if '/' in req.name or '\\' in req.name or '..' in req.name:
+        return JSONResponse({'error': 'недопустимое имя файла'}, status_code=400)
+    try:
+        raw = base64.b64decode(req.png_b64)
+    except Exception:
+        return JSONResponse({'error': 'неверный base64'}, status_code=400)
+    if not raw.startswith(b'\x89PNG'):
+        return JSONResponse({'error': 'ожидался PNG'}, status_code=400)
+    out_dir = PROJECT_ROOT / 'results' / 'snapshots'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    png = out_dir / _sanitize_fname(req.name)
+    if not png.suffix:
+        png = png.with_suffix('.png')
+    png.write_bytes(raw)
+    return {'ok': True, 'png': str(png.relative_to(PROJECT_ROOT))}
 
 
 @app.exception_handler(Exception)
