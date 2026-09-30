@@ -28,7 +28,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-MODELS_DIR = Path('models_archive')
+# Абсолютный путь: панель/CLI работают из любого cwd (иначе list_runs()
+# в сервере, запущенном не из корня проекта, молча возвращает пустой реестр
+# → «пропала возможность выбора модели» в панели).
+PROJECT_ROOT = Path(__file__).resolve().parent
+MODELS_DIR = PROJECT_ROOT / 'models_archive'
 REGISTRY_FILE = 'experiments.csv'
 MANIFEST_FILE = 'manifest.json'
 
