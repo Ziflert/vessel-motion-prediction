@@ -52,6 +52,14 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
   `results/learning_curve_f1/`): при 5949 строках MAE **6.53±0.73** против 8.12±0.25 старого
   пайплайна (−20 %); коллапса E-1 нет (K=1: R²=0.003 — «угадывание»); per-regime лучшего
   прогона: light MAE 1.37 — ЛУЧШИЙ режим, rough 4.73, severe 9.82.
+- **E-цикл на реальных записях Transas ✅ (2026-10-02):** E1T (learning curve по K=2…16
+  на реале w5/w6/w7) + E2T/E3T/E3TBAD/E3TFULL/E3TDOSE — доказательная база аугментации.
+  E3TBAD (чужая калибровка синтетики) 4.05±3.28 vs E1T K=2 1.110±0.244 — калибровка
+  критична (и дестабилизирует обучение, разброс по сидам ×7); E3TFULL 0.489±0.040 —
+  паритет с E1T FULL 0.488 (аугментация не вредит при большом реале); дозовая кривая
+  E3TDOSE: 1.110 (0k) → 0.944 (5k) → 0.933 (10k) → 0.862 (30k) → 0.877 (70k) —
+  насыщение к ~30k. Польза аугментации — только в мало-данных режиме (на K=8 — паритет).
+  Сводка: `results/e3_controls/report.txt`, RESEARCH_LOG «Запуск контрольных серий E-цикла».
 
 ## Карта файлов
 
@@ -71,11 +79,23 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
 | `docs/` | онлайн-документы (ONLINE_*), `TASKS_history.txt`, `history/` (исторические + `history/legacy_notes/`) |
 | `docs/Oil tanker 70k loaded.pdf` + `docs/Wheel-house poster - Oil tanker 70k loaded.pdf` | Pilot Card / WheelHouse Poster судна записи (Oil tanker 77 100 t, Full load, Transas Model 2.166.1432.129): паспорт корпуса, телеграф, циркуляция; сводка — `docs/TRANSAS_DATA_COLLECTION_PLAN.md` §2.4 |
 | `docs/enviroment 2.envtmpl` | шаблон окружения Transas во время записи (зашифрованный бинарник — читается только симулятором; выписать значения при сборе B1) |
-| `results/` | текущий канон: `sweep_f3/`, `article/figs_v2/`, `learning_curve_f1/`, `horizons_f4/`, `regimes/<run>/`, `rolling/<run>/`, `f1_logs/`, `online/`, `snapshots/`, `archive/` (легаси первой версии) |
+| `results/` | текущий канон: `sweep_f3/`, `article/figs_v2/`, `learning_curve_f1/`, `horizons_f4/`, `regimes/<run>/`, `rolling/<run>/`, `learning_curve_e1t/`, `learning_curve_e2t/`, `learning_curve_e3t/`, `e3_controls/` (сводка E-цикла), `real_w5w7_eda/`, `regime_generator_validation.txt`, `f1_logs/`, `online/`, `snapshots/`, `archive/` (легаси первой версии) |
 | `archive/` | архив старого пайплайна (перенесено 2026-09-29, ничего не удалено): `results_old_pipeline/` (figs, horizons, sweep, learning_curve, regimes/rolling v003), `online_sessions/`; README внутри |
 
 ## Открытые задачи (приоритет)
 
+0. **Первые реальные записи Transas собраны (2026-10-01):** w-5/6/7 (1 Гц, ~2 ч каждая),
+   конвертер `scripts/convert_transas_csv.py` (UTF-16 TSV → модельная схема: вывод
+   Velocity.Vertical/Wave.speed, SOG=STW при нулевом течении, фильтрация лишних колонок,
+   --drop-time, --align-chunks); склейка `data/converted/real_w5w6w7_merged.csv` (71k строк).
+   ⚠ Ограничения записей: Pitch заморожен (std≈0 — канал/настройку гировертикали
+   проверить в тренажёре), попутное волнение (roll max 2.4° при Б7 — физика курса),
+   Wind.dir/Wave.dir ≡ 0 — уточнить, дизайн или дефект экспорта.
+   **B4 ✅ (2026-10-01/02):** режимно-зависимый генератор с автокалибровкой
+   (`scripts/generate_regime_synthetic.py`, валидация `results/regime_generator_validation.txt`)
+   + E-цикл «симулятор → реальность» выполнен: E1T/E2T/E3T + контроли E3TBAD/E3TFULL/
+   E3TDOSE — все 3 зарегистрированных ожидания подтверждены (см. «Ключевые результаты»);
+   числовой каркас статьи «обработка данных → лучший результат» готов.
 1. ~~Мультисид (A1)~~ — ✅ 2026-09-28, см. RESEARCH_LOG §5.5.1; журнальные рисунки (A2) — ✅ `archive/results_old_pipeline/article/figs/` (актуальный канон — `results/article/figs_v2/`).
 2. ~~A3: матрица горизонтов 10/20/30~~ — ✅ 2026-09-28, RESEARCH_LOG §5.6 (`archive/results_old_pipeline/horizons/`, fig6/fig7 в archive; актуальный канон — `results/horizons_f4/`): упреждение до ~10 с уверенное (Skill +0.60), дальше ошибка и дисперсия растут — аргумент за MC-Dropout (C4).
 3. ~~Метрика покрытия Ω~~ — ОБЪЕДИНЕНА с G2 (аудит 2026-09-28, IDEAS §G): гипотеза «длительность записи × район плавания» включает метрику Ω.
@@ -91,3 +111,7 @@ LSTM-декодер 96)**, PyTorch. Вход — окно истории дат�
    Детали — RESEARCH_LOG §6 (исправление дефектов). Существующие прогоны не пересчитывались
    (воспроизведение — перезапуском обучения по manifest; для воспроизводимых CUDA-прогонов
    — новый флаг `--deterministic`).
+8. **Аудит онлайн-сервера (2026-10-01):** 8 багов (BUG-ON-01…08, вкл. дедлок двойного
+   /start и «max» → 1.0 в панели) исправлены + оптимизации (кэш предиктора, WS-pump,
+   векторный dataset/view); regression-тесты `tests/test_server_fixes.py`; `pytest tests/`
+   — 32 passed. Детали — ONLINE_BUILD_LOG (2026-10-01).

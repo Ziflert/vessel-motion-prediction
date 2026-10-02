@@ -123,6 +123,30 @@ python run_inference.py --run-id v003 --mc-samples 30   # + неопределё
 
 ## 5. Анализ для исследования качки — `scripts/`
 
+### 5.0 Сырые экспорты Transas → модельная схема (конвертер, 2026-10-01)
+
+```bash
+# Диагностика: какие каналы распознаны в сыром экспорте (UTF-16 TSV с шапкой)
+.venv\Scripts\python.exe -X utf8 scripts\convert_transas_csv.py data\raw\2026-10-01_w-5.csv --list-columns
+
+# Конвертация: фильтр «только нужные колонки» (union всех профилей), без time,
+# хвост обрезан до кратности 1000 (безопасная склейка записей в один файл)
+.venv\Scripts\python.exe -X utf8 scripts\convert_transas_csv.py data\raw\*.csv --out data\converted --drop-time --align-chunks 1000
+
+# Проверка конверта: схема, время, NaN, обучаемость по всем профилям
+.venv\Scripts\python.exe -X utf8 scripts\check_converted.py
+
+# Склейка нескольких записей в один train-файл (кратность чанкам обязательна!)
+# и режимная синтетика (B4): автокалибровка по ступеням Wave.Highest
+.venv\Scripts\python.exe -X utf8 scripts\generate_regime_synthetic.py --seed 7
+```
+
+Ключевые файлы: `data/converted/<имя>_converted.csv` — модельная схема;
+`real_w5w6w7_merged.csv` — склейка 3 записей (71000 строк); `synthetic_regime.csv` —
+режимная синтетика. Ограничения сырого экспорта: Pitch вырожден (исключён из
+профиля `transas_core`), SOG≡0 → подставляется STW, Long/Lat не пишутся —
+подробности и чек-лист МТЦ: `docs/TRANSAS_DATA_COLLECTION_PLAN.md` §8.5.
+
 ```bash
 # Режимы волнения: где модель работает, а где нет
 python scripts/evaluate_regimes.py --run-id <run_id> --stride 7
@@ -290,8 +314,11 @@ python scripts/compare_models.py --runs <id1> <id2> <id3> --horizon 10
 ```
 
 ### «Новые данные»
-Заменить `data/raw/your_data.csv` (TSV, UTF-16; другая кодировка — поправить `load_data()`
-в `run_training.py`, она уже умеет fallback). Колонки должны включать цели и признаки профиля.
+1. Сырой экспорт Transas → `data/raw/` → конвертер (§5.0) → `data/converted/`.
+2. Проверить: `scripts/check_converted.py` (все профили OK, NaN=0).
+3. Обучение: `python run_training.py --data-path data/converted/<файл>.csv --profile transas_core`.
+4. Склейка нескольких записей — только при кратности 1000 (`--align-chunks`).
+Колонки должны включать цели и признаки профиля (см. `check_converted.py`).
 
 ---
 

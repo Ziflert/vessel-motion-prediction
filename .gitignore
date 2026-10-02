@@ -71,3 +71,8 @@ data/online_finetune/*
 draft-article/
 ~$*
 ~WRL*.tmp
+
+# Синтетические датасеты (воспроизводимы генераторами; sha256 хранится в manifest.json
+# каждого прогона): синтетика режимов и негативный контроль
+data/converted/synthetic_regime.csv
+data/converted/synthetic_bad_calib.csv

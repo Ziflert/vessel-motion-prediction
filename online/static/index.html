@@ -95,12 +95,22 @@
   .ser-chip.off { opacity:.45; }
   .ser-chip input[type=color] { width:24px; height:18px; padding:0; border:none;
     background:transparent; cursor:pointer; }
-  /* чипы выбора параметров (несколько линий на графике) */
-  .chip-list { display:flex; flex-wrap:wrap; gap:6px; max-height:132px; overflow:auto;
-    min-width:300px; padding:2px; }
-  .chip-list label { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border);
-    border-radius:12px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--dim); }
-  .chip-list label.on { color:var(--text); border-color:var(--accent); }
+  /* доп. графики просмотра данных (тот же таймлайн, свой выбор параметра) */
+  .vw-sub { border:1px solid var(--border); border-radius:8px; padding:8px 10px;
+    margin:10px 0; background:var(--panel2); }
+  #vw-slider { accent-color:var(--accent); }
+  #vw-mini { border:1px solid var(--border); border-radius:6px; background:var(--panel); }
+  /* выпадающие списки множественного выбора (замена нагромождения чипов) */
+  .mdd { position: relative; }
+  .mdd-btn { min-width: 220px; text-align: left; }
+  .mdd-panel { display: none; position: absolute; top: calc(100% + 4px); left: 0;
+    z-index: 40; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px; min-width: 280px; max-height: 260px;
+    overflow: auto; box-shadow: 0 8px 20px rgba(0,0,0,.4); }
+  .mdd-panel label { display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+    border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--dim); }
+  .mdd-panel label:hover { background: var(--panel); }
+  .mdd-panel label.on { color: var(--text); }
   #btn-theme { padding:7px 10px; }
 </style>
 </head>
@@ -246,14 +256,22 @@
   </div>
   <div class="card"><h3>График сессии <span class="help-btn" data-help="on-zoom">?</span></h3>
     <div class="row" style="margin-bottom:6px;align-items:center">
-      <div id="tgt-bar"></div>
+      <div class="field"><label>Цель графика</label><select id="tgt-select" style="min-width:220px"></select></div>
+      <div class="field"><label>Масштаб просмотра <span class="help-btn" data-help="on-scale">?</span></label>
+        <select id="on-scale" style="width:130px">
+          <option value="60">60 тиков</option>
+          <option value="120">120 тиков</option>
+          <option value="300">300 тиков</option>
+          <option value="600" selected>600 тиков</option>
+          <option value="0">вся сессия</option>
+        </select></div>
       <span class="stat" id="on-cursor" style="margin-left:auto;color:var(--warn)"></span>
       <button id="btn-on-reset" data-help="on-zoom-reset">⤢ Сброс масштаба</button>
       <button id="btn-on-snap" data-help="snapshot-online">📸 Snapshot</button>
     </div>
     <div class="ser-chips" id="on-chips"></div>
     <div class="field" style="width:100%;margin-top:2px"><label>Линии данных (можно несколько) <span class="help-btn" data-help="on-lines">?</span></label>
-      <div id="on-lines" class="chip-list"></div></div>
+      <div id="on-lines" style="min-width:240px"></div></div>
     <div id="chart-wrap" style="min-height:300px"></div>
   </div>
   <div id="statusbar">
@@ -299,7 +317,7 @@
       <div class="field"><label>Начало, с <span class="help-btn" data-help="dt-view-start">?</span></label>
         <input id="vw-start" type="number" min="0" value="0" style="width:90px"></div>
       <div class="field"><label>Параметры (можно несколько) <span class="help-btn" data-help="dt-view-target">?</span></label>
-        <div id="vw-targets" class="chip-list"></div></div>
+        <div id="vw-targets" style="min-width:240px"></div></div>
       <div class="field"><label>&nbsp;</label>
         <button class="primary" id="btn-vw-show" data-help="dt-view-show">👁 Показать</button></div>
       <div class="field"><label>&nbsp;</label>
@@ -310,6 +328,16 @@
       <button id="btn-vw-reset" style="margin-left:16px" data-help="on-zoom-reset">⤢ Сброс масштаба</button></p>
     <div class="ser-chips" id="vw-chips"></div>
     <div id="vw-chart" style="min-height:280px"></div>
+    <div class="field" style="width:100%;margin-top:8px"><label>Обзор записи (minimap — вся запись + зона просмотра) <span class="help-btn" data-help="dt-view-mini">?</span></label>
+      <canvas id="vw-mini" height="44" style="width:100%;display:block;cursor:pointer"></canvas></div>
+    <div class="field" style="width:100%;margin-top:8px"><label>Таймлайн (ползунок) <span class="help-btn" data-help="dt-view-slider">?</span></label>
+      <input type="range" id="vw-slider" min="0" max="100" value="0" disabled style="width:100%"></div>
+    <div class="row" style="margin-top:10px;align-items:center">
+      <button id="btn-vw-addsub" data-help="dt-view-addsub">＋ Добавить график</button>
+      <span style="color:var(--dim);font-size:12px">дополнительные графики с тем же таймлайном, что и главный;
+        выбор параметра на каждом — независимо от главного</span>
+    </div>
+    <div id="vw-subs"></div>
     <div id="vw-snapresult" style="margin-top:8px;font-size:12px;color:var(--ok)"></div>
   </div>
   <div class="card"><h3>Дата-сеты (data/raw)</h3><div id="dt-list"></div></div>
@@ -391,7 +419,7 @@
 
 <script src="/static/vendor/uplot.iife.js"></script>
 <!-- версия в query — защита от устаревшего кэша браузера (панель «не реагировала» на правки JS) -->
-<script src="/static/help.js?v=8"></script>
-<script src="/static/panel.js?v=8"></script>
+<script src="/static/help.js?v=17"></script>
+<script src="/static/panel.js?v=17"></script>
 </body>
 </html>

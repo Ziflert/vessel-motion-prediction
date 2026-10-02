@@ -252,6 +252,29 @@ class Config:
                 'weights': {'ROT(°/мин)': 1.0}
             },
 
+            # Профиль для реальных записей Transas w-5/6/7 (2026-10-01): без Pitch —
+            # канал дифферента в этих записях вырожден (std≈0.002°, см.
+            # results/real_w5w7_eda/report.txt; проверка канала — при следующем
+            # визите в МТЦ). Убирает Pitch из features И targets.
+            'transas_core': {
+                'features': WEATHER_FEATURES + CONTROL_FEATURES
+                            + [c for c in MOTION_STATE if c != 'Pitch(градусы)'
+                               and c != 'Velocity.Pitching(°/мин)']
+                            + ['SOG(узлы)', 'ROT(°/мин)'],
+                'targets': [
+                    'Roll(градусы)',
+                    'Vertical(Метр)',
+                    'Velocity.Rolling(°/мин)',
+                    'Velocity.Vertical(узлы)',
+                ],
+                'weights': {
+                    'Roll(градусы)': 2.0,
+                    'Vertical(Метр)': 1.5,
+                    'Velocity.Rolling(°/мин)': 1.2,
+                    'Velocity.Vertical(узлы)': 0.8,
+                }
+            },
+
             'speed_prediction': {
                 'features': WEATHER_FEATURES + CONTROL_FEATURES + ['SOG(узлы)'] + MOTION_STATE,
                 'targets': ['SOG(узлы)'],

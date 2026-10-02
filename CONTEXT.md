@@ -16,6 +16,7 @@
 | Правила работы ИИ/агентов, скилы | `AGENTS.md` (в корне; pi грузит автоматически) + скил `vessel-project` (`.pi/skills/`, форс: `/skill:vessel-project`) |
 | Быстрый старт/что где нажимать | `README.md` (лендинг) |
 | Как запустить обучение/inference/анализ | `USAGE.md` (целиком, ~200 строк) |
+| Сырые экспорты Transas → конвертация → синтетика (конвейер данных) | `USAGE.md` §5.0; скрипты: `scripts/convert_transas_csv.py`, `check_converted.py`, `analyze_regimes_real.py`, `generate_regime_synthetic.py`; уроки сбора — `docs/TRANSAS_DATA_COLLECTION_PLAN.md` §8.5 |
 | Параметры модели/профиля | `config/config.py` (только поля dataclass + `get_profile_config`) |
 | Как устроена архитектура | `models/vessel_predictor.py` (+ `encoder.py`, `decoder.py`, `attention.py` при необходимости) |
 | История версий v001–v004, старые метрики | `docs/history/PROJECT_OVERVIEW_v1_20260927.md` §7–9 (точечно, целиком НЕ читать) |

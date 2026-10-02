@@ -21,6 +21,7 @@ import asyncio
 import base64
 import csv as csv_mod
 import json
+import math
 import queue as py_queue
 import sys
 import threading
@@ -30,7 +31,6 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-import numpy as np
 import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -62,6 +62,9 @@ class SessionState:
     def __init__(self):
         self.runner: 'PlaybackRunner' = None
         self.lock = threading.Lock()
+        # Гонка двойного /start: пока runner строится (загрузка модели ~1 с),
+        # второй запрос должен получить 409, а не затереть первый (BUG-ON-06)
+        self.starting = False
 
     @property
     def running(self) -> bool:
@@ -120,11 +123,16 @@ class PlaybackRunner(threading.Thread):
         self.out_dir = PROJECT_ROOT / 'results' / 'online' / self.session_id
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
-        # n_rows известен сразу (ответ /start до старта потока)
-        df = df_raw.iloc[start_row:]
-        if limit is not None:
-            df = df.iloc[:limit]
-        self.n_rows = len(df)
+        # n_rows известен сразу (ответ /start до старта потока).
+        # BUG-ON-01: live-источник бесконечен — n_rows=None (раньше показывалась
+        # длина всего CSV, бессмысленная для live и сбивавшая панель)
+        if source_mode == 'live':
+            self.n_rows = None
+        else:
+            df = df_raw.iloc[start_row:]
+            if limit is not None:
+                df = df.iloc[:limit]
+            self.n_rows = len(df)
 
         self.status = {
             'session_id': self.session_id,
@@ -162,6 +170,28 @@ class PlaybackRunner(threading.Thread):
     # Подписки WS (backpressure: drop-old, план §7)
     # ------------------------------------------------------------------
 
+    def _log_event(self, level, msg):
+        ts = datetime.now().isoformat(timespec='seconds')
+        with open(self.out_dir / 'events.log', 'a', encoding='utf-8') as f:
+            f.write(f'{ts} | {level} | {msg}\n')
+
+    def _finalize(self):
+        """Итоги сессии: stats, broadcast end, summary.txt, events.log.
+        Вызывается и при штатном завершении, и при EngineStalledError /
+        системной ошибке (BUG-ON-02) — чтобы WS-клиент получал 'end' всегда."""
+        self.stats_snapshot = self.engine.error_stats()
+        self._broadcast({
+            'type': 'end',
+            'status': dict(self.status),
+            'error_stats': sanitize_error_stats(self.stats_snapshot),
+        })
+        (self.out_dir / 'summary.txt').write_text(
+            json.dumps({'status': self.status,
+                        'error_stats': sanitize_error_stats(self.stats_snapshot)},
+                       ensure_ascii=False, indent=2, default=float),
+            encoding='utf-8')
+        self._log_event('INFO', f'Сессия завершена: {dict(self.status)}')
+
     def subscribe(self) -> py_queue.Queue:
         q = py_queue.Queue(maxsize=2)
         with self.sub_lock:
@@ -193,9 +223,18 @@ class PlaybackRunner(threading.Thread):
     def run(self):
         try:
             self._run_loop()
+        except EngineStalledError as e:
+            # BUG-ON-02: N подряд stale-прогнозов (план §7). Раньше общий except
+            # ставил state='stopped', а summary/broadcast end не отправлялись —
+            # WS-клиенты висели молча вечно, итоги сессии не писались.
+            self.error = str(e)
+            self.status['state'] = 'stalled'
+            self._finalize()
         except Exception as e:  # системная ошибка цикла — в статус
             self.error = str(e)
             self.status['state'] = 'stopped'
+            self._log_event('ERROR', f'системная ошибка цикла: {e}')
+            self._finalize()
             raise
 
     def _run_loop(self):
@@ -253,10 +292,7 @@ class PlaybackRunner(threading.Thread):
         (self.out_dir / 'config_snapshot.json').write_text(
             json.dumps(snapshot, ensure_ascii=False, indent=2), encoding='utf-8')
 
-        def log_event(level, msg):
-            ts = datetime.now().isoformat(timespec='seconds')
-            with open(self.out_dir / 'events.log', 'a', encoding='utf-8') as f:
-                f.write(f'{ts} | {level} | {msg}\n')
+        log_event = self._log_event
 
         with open(session_path, 'w', encoding='utf-8', newline='') as f_session, \
              open(fore_path, 'w', encoding='utf-8', newline='') as f_fore, \
@@ -343,14 +379,21 @@ class PlaybackRunner(threading.Thread):
                     'uncertain_std': None if result.uncertain_std is None
                         else [[round(float(v), 4) for v in row_]
                               for row_ in result.uncertain_std],
-                    'actual': {c: float(row[c]) for c in target_columns},
+                    # BUG-ON-03: NaN в целевой колонке давал literal NaN в JSON
+                    # → JSON.parse ломался в панели (WS молча замирал). Не-числа/
+                    # не-конечные значения отфильтровываются; колонки без значения
+                    # в строке пропускаются (не крушат всю сессию)
+                    'actual': {c: row[c] for c in target_columns
+                               if (v := _to_float(row.get(c))) is not None
+                               and math.isfinite(v)},
                     'preds': None if result.preds is None
                     else [[round(float(v), 4) for v in row_]
                          for row_ in result.preds],
                     # полная строка записи: вход плавающих показателей (F1) —
                     # панель выбирает любые колонки без перезапуска сессии
                     'row': {c: v for c in raw_columns
-                            if (v := _to_float(row.get(c))) is not None},
+                            if (v := _to_float(row.get(c))) is not None
+                            and math.isfinite(v)},
                 })
 
                 # ритм: привязка к монотонным часам, пауза не копит дрейф.
@@ -362,25 +405,34 @@ class PlaybackRunner(threading.Thread):
                     while not self._stop_flag.is_set() and time.monotonic() < end_t:
                         time.sleep(min(0.05, max(0.0, end_t - time.monotonic())))
 
-        self.stats_snapshot = engine.error_stats()
-        self.status['state'] = 'stopped' if self.status['state'] != 'stalled' \
-            else self.status['state']
-        self._broadcast({
-            'type': 'end',
-            'status': dict(self.status),
-            'error_stats': sanitize_error_stats(self.stats_snapshot),
-        })
-        (self.out_dir / 'summary.txt').write_text(
-            json.dumps({'status': self.status,
-                        'error_stats': sanitize_error_stats(self.stats_snapshot)},
-                       ensure_ascii=False, indent=2, default=float),
-            encoding='utf-8')
-        log_event('INFO', f'Сессия завершена: {dict(self.status)}')
+        if self.status['state'] == 'running':
+            self.status['state'] = 'stopped'
+        self._finalize()
 
 
 # ===========================================================================
 # REST
 # ===========================================================================
+
+_PREDICTOR_CACHE: dict = {}  # run_id -> ((mtime_ckpt, mtime_scalers), predictor)
+
+
+def _get_predictor(run_dir, ckpt, scalers):
+    """Кэш предиктора по run_id: повторные /api/predict и снапшоты не перезагружают
+    torch-модель (~200 мс на вызов). Ключ включает mtime чекпоинтов — новая
+    версия модели (перезапуск обучения) честно перезагружается."""
+    key = str(run_dir)
+    mt = (ckpt.stat().st_mtime, scalers.stat().st_mtime)
+    cached = _PREDICTOR_CACHE.get(key)
+    if cached and cached[0] == mt:
+        return cached[1]
+    predictor = VesselPredictor_Inference(str(ckpt), str(scalers))
+    if len(_PREDICTOR_CACHE) > 4:
+        oldest = next(iter(_PREDICTOR_CACHE))
+        _PREDICTOR_CACHE.pop(oldest, None)
+    _PREDICTOR_CACHE[key] = (mt, predictor)
+    return predictor
+
 
 class StartRequest(BaseModel):
     model: str
@@ -439,13 +491,22 @@ async def api_datasets():
 
 
 def sanitize_error_stats(stats):
-    """error_stats → JSON-безопасный dict (numpy-массивы → списки/float)."""
+    """error_stats → JSON-безопасный dict (numpy-массивы → списки/float).
+    BUG-ON-07: NaN-цели (пропуски в CSV) давали literal NaN в JSON — 'end'
+    сообщение не парсилось в панели. NaN/не-конечные → пропуск/None.
+    Также раньше терялся per_horizon (не отдавался в summary/UI вовсе)."""
     if not stats:
         return None
     out = {'count': int(stats.get('count', 0))}
     pt = stats.get('per_target')
     if pt:
-        out['per_target'] = {k: float(v) for k, v in pt.items()}
+        out['per_target'] = {k: float(v) for k, v in pt.items()
+                             if v == v and math.isfinite(v)}
+    ph = stats.get('per_horizon')
+    if ph is not None:
+        out['per_horizon'] = [
+            float(v) if (v == v and math.isfinite(v)) else None
+            for v in np.asarray(ph).tolist()]
     return out
 
 
@@ -467,9 +528,24 @@ async def api_status():
 
 @app.post('/api/session/start')
 async def api_start(req: StartRequest):
-    if SESSION.running:
-        return JSONResponse({'error': 'Сессия уже запущена'}, status_code=409)
+    # BUG-ON-06: check-and-set под одним флагом — два одновременных POST /start
+    # в окне загрузки модели (~1 с) раньше оба проходили и второй затирал первый.
+    # ВАЖНО: проверка БЕЗ вызова SESSION.running — тот берёт SESSION.lock, а
+    # threading.Lock не реентерабелен: вызов под уже взятым локом = дедлок
+    # (урок отладки: сервер завис именно так при первом же POST /start)
+    with SESSION.lock:
+        runner = SESSION.runner
+        alive = runner is not None and runner.is_alive()
+        if alive or SESSION.starting:
+            return JSONResponse({'error': 'Сессия уже запущена'}, status_code=409)
+        SESSION.starting = True
+    try:
+        return await _start_session(req)
+    finally:
+        SESSION.starting = False
 
+
+async def _start_session(req: StartRequest):
     run_dir = reg.resolve_run(req.model)
     manifest = reg.load_manifest(run_dir)
     if manifest is None:
@@ -481,9 +557,17 @@ async def api_start(req: StartRequest):
         return JSONResponse({'error': 'Нет checkpoints/best_model.pt или scalers.pkl'},
                             status_code=400)
 
-    predictor = VesselPredictor_Inference(str(ckpt), str(scalers))
+    predictor = _get_predictor(run_dir, ckpt, scalers)
     fe_params = extract_fe_params(manifest)
     df_raw = load_raw_csv(DATA_DIR / req.csv)
+    # BUG-ON-03 (корень): CSV без целевых колонок модели крусил сессию в середине
+    # (KeyError в broadcast). Валидация на старте — понятный 400 вместо тихой смерти
+    missing_targets = [c for c in predictor.config.target_columns
+                       if c not in df_raw.columns]
+    if missing_targets:
+        return JSONResponse(
+            {'error': f'В дата-сете {req.csv} нет целевых колонок: {missing_targets}'},
+            status_code=400)
 
     runner = PlaybackRunner(predictor, df_raw, fe_params, CFG,
                             speed=max(0.0, req.speed if req.speed is not None else 1.0), limit=req.limit,
@@ -537,18 +621,42 @@ async def ws_endpoint(ws: WebSocket):
         await ws.close()
         return
     q = runner.subscribe()
+    # ОПТИМИЗАЦИЯ: один pump-поток на соединение пересылает очередь runner'а в
+    # asyncio-очередь (call_soon_threadsafe). Раньше asyncio.to_thread(q.get)
+    # порождал задачу пула потоков на КАЖДЫЙ tick-конверт — при скорости 100×
+    # и нескольких клиентах это заметная нагрузка.
+    loop = asyncio.get_running_loop()
+    aq: asyncio.Queue = asyncio.Queue(maxsize=8)
+
+    def _push(msg):
+        if aq.qsize() >= aq.maxsize:
+            try:
+                aq.get_nowait()   # drop-old (план §7)
+            except asyncio.QueueEmpty:
+                pass
+        aq.put_nowait(msg)
+
+    stop = threading.Event()
+
+    def pump():
+        while not stop.is_set():
+            try:
+                msg = q.get(timeout=0.5)
+            except py_queue.Empty:
+                continue
+            loop.call_soon_threadsafe(_push, msg)
+
+    threading.Thread(target=pump, daemon=True, name='ws-pump').start()
     try:
         while True:
-            try:
-                msg = await asyncio.to_thread(q.get, timeout=30.0)
-            except Exception:
-                continue  # таймаут молчания — просто ждём дальше
+            msg = await aq.get()
             await ws.send_json(msg)
             if msg.get('type') == 'end':
                 break
     except WebSocketDisconnect:
         pass
     finally:
+        stop.set()
         runner.unsubscribe(q)
 
 
@@ -750,7 +858,7 @@ async def api_predict(req: PredictRequest):
             detail=(f'Модель {run_dir.name} не имеет файлов чекпоинта ({", ".join(missing)}) — '
                     f'прогон не завершён (статус «{manifest.get("status", "?")}»). '
                     f'Выберите завершённую модель или перезапустите обучение.'))
-    predictor = VesselPredictor_Inference(str(ckpt), str(scalers))
+    predictor = _get_predictor(run_dir, ckpt, scalers)
     fe = extract_fe_params(manifest)
     df = load_raw_csv(DATA_DIR / req.csv)
     if fe['cyclic'] or fe['relative_wave_angle'] or fe.get('relative_wind_angle', False):
@@ -853,12 +961,6 @@ async def api_job(job_id: str):
         return {**job, 'log': job['log'][-80:]}
 
 
-class PredictRequest(BaseModel):
-    run_id: str
-    csv: str
-    start_row: int = 4000
-
-
 # ===========================================================================
 # ПРОСМОТР ДАННЫХ + SNAPSHOT (запрос заказчика)
 # ===========================================================================
@@ -868,13 +970,18 @@ _CSV_CACHE: dict = {}  # path -> (mtime, df) — данные не меняют�
 
 def _dataset_cached(name: str) -> pd.DataFrame:
     path = DATA_DIR / name
+    # BUG-ON-05: несуществующий CSV давал 500 FileNotFoundError (невнятное
+    # сообщение от exception-handler) — должен быть понятный 400
+    if not path.exists():
+        raise HTTPException(status_code=400, detail=f'нет такого дата-сета: {name}')
     mt = path.stat().st_mtime
     cached = _CSV_CACHE.get(str(path))
     if cached and cached[0] == mt:
         return cached[1]
     df = load_raw_csv(path)
     if len(_CSV_CACHE) > 8:
-        _CSV_CACHE.clear()
+        # вытесняем самый старый элемент, а не чистим весь кэш
+        _CSV_CACHE.pop(next(iter(_CSV_CACHE)), None)
     _CSV_CACHE[str(path)] = (mt, df)
     return df
 
@@ -896,8 +1003,11 @@ async def api_dataset_columns(csv: str):
 
 
 @app.get('/api/dataset/view')
-async def api_dataset_view(csv: str, start: int = 0, duration: int = 0):
-    """Серия для графика. duration=0 — все данные; прореживание до <=4000 точек."""
+async def api_dataset_view(csv: str, start: int = 0, duration: int = 0,
+                           max_points: int = 4000, cols: str = ''):
+    """Серия для графика. duration=0 — все данные; прореживание до <=max_points
+    точек (панель отключает прореживание для динамического ползунка таймлайна).
+    cols — необязательный список колонок через запятую (отдаём только их)."""
     if '/' in csv or '\\' in csv or '..' in csv:
         return JSONResponse({'error': 'недопустимое имя'}, status_code=400)
     df = _dataset_cached(csv)
@@ -905,21 +1015,26 @@ async def api_dataset_view(csv: str, start: int = 0, duration: int = 0):
     start = max(0, min(start, n_total - 1))
     end = n_total if duration <= 0 else min(n_total, start + duration)
     view = df.iloc[start:end]
-    stride = max(1, (len(view) + 3999) // 4000)
-    idx = list(range(0, len(view), stride))
+    stride = max(1, (len(view) + max_points - 1) // max_points)
+    # ОПТИМИЗАЦИЯ: to_numpy + fancy-index вместо pandas iloc[список] —
+    # единый числовой проход на колонку (при полной записи × 40 колонок быстрее)
+    idx = np.arange(0, len(view), stride)
+    only = {c.strip() for c in cols.split(',') if c.strip()} if cols else None
     series = {}
     for col in df.columns:
         if col in ('time',):
             continue
+        if only is not None and col not in only:
+            continue
         try:
-            vals = pd.to_numeric(view[col].iloc[idx], errors='coerce')
+            vals = pd.to_numeric(view[col], errors='coerce').to_numpy()[idx]
             series[col] = [None if pd.isna(v) else round(float(v), 4) for v in vals]
         except Exception:
             continue
     return {
         'total_rows': n_total, 'start': start, 'end': end,
         'stride': stride, 'n_points': len(idx),
-        'xs': [start + i for i in idx],
+        'xs': (start + idx).tolist(),
         'columns': list(series.keys()),
         'series': series,
     }
