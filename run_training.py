@@ -209,6 +209,13 @@ def main():
                         help='BUG-LSTM-06: детерминированный режим (cuDNN benchmark off, '
                              'deterministic algorithms) — CUDA-прогоны воспроизводимы, '
                              'но медленнее. Фиксируется в manifest.')
+    parser.add_argument('--split-train-frac', type=float, default=0.7,
+                        help='Доля train внутри каждого чанка при chunked-сплите '
+                             '(по умолчанию 0.7; для горизонтов H>30 нужно меньше, '
+                             'чтобы val/test сегменты вместили окно seq+H)')
+    parser.add_argument('--split-val-frac', type=float, default=0.15,
+                        help='Доля val внутри каждого чанка (по умолчанию 0.15; '
+                             'остаётся test). Фиксируется в manifest.data.split.')
     args = parser.parse_args()
 
     start_time = time.time()
@@ -320,7 +327,8 @@ def main():
 
     # 4. Сплит на НЕПРЕРЫВНЫЕ сегменты (без утечки между выборками)
     print("\nPerforming Mixed Weather Split (chunked segments, no window leakage)...")
-    train_segments, val_segments, test_segments, test_row_ranges = split_segments(df)
+    train_segments, val_segments, test_segments, test_row_ranges = split_segments(
+        df, train_frac=args.split_train_frac, val_frac=args.split_val_frac)
 
     # Learning curve: подмножество train-сегментов. При --subset-seed — СЛУЧАЙНОЕ
     # (отвязывает размер выборки от порядка сегментов/штормовости), иначе первые K.
@@ -405,7 +413,7 @@ def main():
                          'sha256': reg.file_sha256(args.extra_train_csv),
                          'rows_used': args.extra_train_rows} if args.extra_train_csv else None),
         'split': {'scheme': 'chunked_segments', 'chunk_size': 1000,
-                  'train_frac': 0.7, 'val_frac': 0.15, 'seed': config.seed},
+                  'train_frac': args.split_train_frac, 'val_frac': args.split_val_frac, 'seed': config.seed},
     }
     manifest['features'] = {
         'profile': config.profile,
