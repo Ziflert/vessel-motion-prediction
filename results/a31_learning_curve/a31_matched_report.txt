@@ -1,0 +1,39 @@
+========================================================================================
+A3.1 — MATCHED LEARNING CURVE: ОБЪЁМ ДАННЫХ → КАЧЕСТВО ВНУТРИ ОБЛАСТИ ОБУЧЕНИЯ
+========================================================================================
+Система: одно судно, один симулятор, одна категория загрузки; H=20, transas_core.
+Оценка: тестовые сегменты фиксированы внутри каждого датасета; mean±SD по сидами.
+12k = your_data.csv, A3.1; 71k = real_w5w6w7_merged.csv, E1T.
+Общая панель целей: Roll, Vertical, Velocity.Rolling, Velocity.Vertical.
+MAE/sigma = macro-average per-target MAE, делённая на SD соответствующей test-цели.
+Важно: test-панели 12k и 71k различаются по режимам; это стратификационный фактор.
+Поэтому междатасетное сравнение — описательное, не причинное.
+
+--- aggregate table ---
+dataset  n_train  seeds  MAE mean±SD       R2 mean±SD       skill mean±SD     MAE/sigma mean±SD
+    12k     1400      3  12.088±1.716   +0.398±0.137   +0.344±0.093   0.607±0.026
+    12k     2800      3  11.196±0.894   +0.371±0.139   +0.392±0.049   0.563±0.025
+    12k     5600      3  10.705±1.477   +0.436±0.149   +0.419±0.080   0.559±0.043
+    71k     1400      3  1.110±0.244   -0.071±0.227   +0.092±0.199   0.657±0.064
+    71k     2800      3  0.878±0.053   +0.067±0.081   +0.282±0.043   0.554±0.061
+    71k     5600      3  0.775±0.016   +0.325±0.050   +0.366±0.013   0.473±0.010
+    71k    11200      3  0.740±0.069   +0.269±0.147   +0.395±0.057   0.438±0.034
+    71k    49700      1  0.488±0.000   +0.674±0.000   +0.601±0.000   0.308±0.000
+
+--- trend diagnostics (aggregate points; exploratory) ---
+12k: 3 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0375, exploratory R2=0.973; p-value not reported (too few non-independent aggregate points)
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0237, exploratory R2=0.804; p-value not reported (too few non-independent aggregate points)
+71k: 5 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0909, exploratory R2=0.948; p-value not reported (too few non-independent aggregate points)
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0650, exploratory R2=0.974; p-value not reported (too few non-independent aggregate points)
+
+--- interpretation boundary ---
+Сейчас доступна описательная статистика: 12k имеет 3 объёма × 3 сида,
+71k — 4 объёма × 3 сида плюс FULL с одним сидом. Этого достаточно для оценки
+направления и приблизительного насыщения, но недостаточно для сильного вывода
+об эффекте объёма отдельно от режима. Для подтверждения нужны одинаковые split,
+общие цели, одинаковые H={10,20,30}, режимная стратификация и дополнительные повторы.
+Не считать отдельные окна внутри одной записи независимыми репликами: единица
+репликации здесь — seed/выбор train-сегментов, а не отдельная строка временного ряда.
+========================================================================================

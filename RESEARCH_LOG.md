@@ -2022,3 +2022,17 @@ a31_stage4_powerlaw_report.txt`, `a31_stage4_powerlaw.csv`.
 Артефакты: `scripts/preflight_dataset.py`, `scripts/omega_density.py`,
 `scripts/run_full_cycle.sh`, `scripts/cycle_config.sh`, `scripts/run_cycle_combined.sh`,
 `docs/DATASET_REGISTRY.md`, `results/preflight/`, `results/omega_density/`.
+
+## Аудит файлов проекта (2026-10-03, запрос заказчика — «как в аптеке»)
+
+Полная инвентаризация (2126 файлов, md5-сверка): вредных дубликатов нет — совпадения
+либо детерминированные артефакты прогонов (одинаковые scalers.pkl при fixed scaler,
+environment.txt одного дня записи), либо намеренный архив (online_sessions, старые
+каноны фигур). Удалены/объединены: `_tmp_latest.txt` (пустой временный), `task.txt`
+(содержимое перенесено в `docs/TASKS_current.txt`). `draft-article/*.docx` в корне —
+пользовательские экспорты статьи (не дубликаты), отмечены в MAP.md.
+Создан `MAP.md` — карта «каждый файл каждой папки: что делает/показывает».
+Отчёт: `docs/AUDIT_20261003.md`.
+
+### Статус параллельных процессов
+Батч combined (C12/C71/FULL, 42 прогона) — идёт в фоне, см. `results/a31_learning_cycle/batch_combined.log`.

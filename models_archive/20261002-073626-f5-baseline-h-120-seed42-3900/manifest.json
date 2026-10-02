@@ -1,0 +1,197 @@
+{
+  "run_id": "20261002-073626-f5-baseline-h-120-seed42-3900",
+  "created_at": "2026-10-02T07:36:26",
+  "status": "failed",
+  "hypothesis": "F5 baseline H=120 seed42",
+  "git_commit": "7fb54c95a370da8b9bc0b1b11022f64ad4135ab9",
+  "data": {
+    "path": "data\\raw\\your_data_minimal.csv",
+    "sha256": "480569708474a954f626d938e2f59eda6ea41b993f10fea756f86b16c223fca1",
+    "rows_total": 12499,
+    "rows_train": 6300,
+    "rows_val": 1800,
+    "rows_test": 1800,
+    "n_segments_train": 9,
+    "n_segments_val": 12,
+    "n_segments_test": 12,
+    "test_row_ranges": [
+      [
+        850,
+        1000
+      ],
+      [
+        1850,
+        2000
+      ],
+      [
+        2850,
+        3000
+      ],
+      [
+        3850,
+        4000
+      ],
+      [
+        4850,
+        5000
+      ],
+      [
+        5850,
+        6000
+      ],
+      [
+        6850,
+        7000
+      ],
+      [
+        7850,
+        8000
+      ],
+      [
+        8850,
+        9000
+      ],
+      [
+        9850,
+        10000
+      ],
+      [
+        10850,
+        11000
+      ],
+      [
+        11850,
+        12000
+      ]
+    ],
+    "train_segments_used": 9,
+    "subset_seed": 123,
+    "fixed_scaler": true,
+    "train_frac": null,
+    "target_std_train": {
+      "Pitch(градусы)": 0.39834054454565765,
+      "Roll(градусы)": 2.4217622187615215,
+      "Vertical(Метр)": 0.6524046948947994,
+      "Velocity.Pitching(°/мин)": 14.31071744298592,
+      "Velocity.Rolling(°/мин)": 76.61563647669668,
+      "Velocity.Vertical(узлы)": 0.9202816879989417,
+      "ROT(°/мин)": 13.732475315384068,
+      "SOG(узлы)": 1.6685040483142841
+    },
+    "synthetic_train": null,
+    "extra_train": null,
+    "split": {
+      "scheme": "chunked_segments",
+      "chunk_size": 1000,
+      "train_frac": 0.7,
+      "val_frac": 0.15,
+      "seed": 42
+    }
+  },
+  "model": {
+    "type": "lstm",
+    "sequence_length": 120,
+    "prediction_horizon": 120,
+    "prediction_step": 1,
+    "encoder_hidden_dims": [
+      128,
+      96
+    ],
+    "encoder_dropout": 0.15,
+    "temporal_hidden_size": 128,
+    "temporal_num_layers": 2,
+    "temporal_dropout": 0.1,
+    "decoder_hidden_dim": 96,
+    "decoder_dropout": 0.1,
+    "bidirectional": false,
+    "use_attention": true
+  },
+  "training": {
+    "batch_size": 48,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.0001,
+    "num_epochs": 100,
+    "early_stopping_patience": 25,
+    "max_grad_norm": 1.0,
+    "loss_weights": {
+      "mse": 1.0,
+      "huber": 0.5,
+      "smoothness": 0.1
+    },
+    "teacher_forcing_ratio": 0.5,
+    "seed": 42,
+    "device": "cuda",
+    "reproducibility": {
+      "deterministic_mode": false,
+      "cuda_manual_seed_all": true,
+      "cudnn_benchmark": true,
+      "note": "CUDA-прогоны могут различаться при одинаковом seed; для воспроизводимости используйте --deterministic"
+    },
+    "quick_test": true,
+    "overrides": {
+      "lr": null,
+      "roll_weight": null,
+      "huber_weight": null,
+      "smooth_weight": null,
+      "no_attention": false
+    }
+  },
+  "features": {
+    "profile": "minimal_prediction",
+    "input": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "SOG(узлы)",
+      "ROT(°/мин)",
+      "Course(sin)",
+      "Course(cos)",
+      "Rudder Order(градусы)",
+      "Rudder State(градусы)",
+      "RPM(Обороты в минуту)",
+      "Wave.Highest(метры)",
+      "Wave.speed(узлы)",
+      "Wind.Force Summary(тс)",
+      "Wave.direction(sin)",
+      "Wave.direction(cos)",
+      "Wind.direction(sin)",
+      "Wind.direction(cos)",
+      "Rel.Wave.angle(sin)",
+      "Rel.Wave.angle(cos)",
+      "Rel.Wind.angle(sin)",
+      "Rel.Wind.angle(cos)"
+    ],
+    "targets": [
+      "Pitch(градусы)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Pitching(°/мин)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "ROT(°/мин)",
+      "SOG(узлы)"
+    ],
+    "target_weights": {
+      "Pitch(градусы)": 1.0,
+      "Roll(градусы)": 2.0,
+      "Vertical(Метр)": 1.5,
+      "Velocity.Pitching(°/мин)": 0.8,
+      "Velocity.Rolling(°/мин)": 1.2,
+      "Velocity.Vertical(узлы)": 0.8,
+      "ROT(°/мин)": 1.5,
+      "SOG(узлы)": 1.0
+    },
+    "feature_engineering": {
+      "cyclic_encoding": true,
+      "relative_wave_angle": true,
+      "relative_wind_angle": true
+    },
+    "input_dim": 24,
+    "output_dim": 8
+  },
+  "scalers": {},
+  "results": {}
+}

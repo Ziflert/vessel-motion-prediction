@@ -1,0 +1,183 @@
+{
+  "run_id": "20261002-094843-a3-1-12k-core-k-2-seed-4-3900",
+  "created_at": "2026-10-02T09:48:43",
+  "status": "failed",
+  "hypothesis": "A3.1 12k-core K=2 seed=42",
+  "git_commit": "7fb54c95a370da8b9bc0b1b11022f64ad4135ab9",
+  "data": {
+    "path": "data\\raw\\your_data_minimal.csv",
+    "sha256": "480569708474a954f626d938e2f59eda6ea41b993f10fea756f86b16c223fca1",
+    "rows_total": 12499,
+    "rows_train": 1400,
+    "rows_val": 1800,
+    "rows_test": 1800,
+    "n_segments_train": 2,
+    "n_segments_val": 12,
+    "n_segments_test": 12,
+    "test_row_ranges": [
+      [
+        850,
+        1000
+      ],
+      [
+        1850,
+        2000
+      ],
+      [
+        2850,
+        3000
+      ],
+      [
+        3850,
+        4000
+      ],
+      [
+        4850,
+        5000
+      ],
+      [
+        5850,
+        6000
+      ],
+      [
+        6850,
+        7000
+      ],
+      [
+        7850,
+        8000
+      ],
+      [
+        8850,
+        9000
+      ],
+      [
+        9850,
+        10000
+      ],
+      [
+        10850,
+        11000
+      ],
+      [
+        11850,
+        12000
+      ]
+    ],
+    "train_segments_used": 2,
+    "subset_seed": 42,
+    "fixed_scaler": false,
+    "train_frac": null,
+    "target_std_train": {
+      "Roll(градусы)": 2.5458353076020472,
+      "Vertical(Метр)": 0.9405222463342178,
+      "Velocity.Rolling(°/мин)": 80.87159638780705,
+      "Velocity.Vertical(узлы)": 1.1267185267562034
+    },
+    "synthetic_train": null,
+    "extra_train": null,
+    "split": {
+      "scheme": "chunked_segments",
+      "chunk_size": 1000,
+      "train_frac": 0.7,
+      "val_frac": 0.15,
+      "seed": 42
+    }
+  },
+  "model": {
+    "type": "lstm",
+    "sequence_length": 120,
+    "prediction_horizon": 20,
+    "prediction_step": 1,
+    "encoder_hidden_dims": [
+      128,
+      96
+    ],
+    "encoder_dropout": 0.15,
+    "temporal_hidden_size": 128,
+    "temporal_num_layers": 2,
+    "temporal_dropout": 0.1,
+    "decoder_hidden_dim": 96,
+    "decoder_dropout": 0.1,
+    "bidirectional": false,
+    "use_attention": true
+  },
+  "training": {
+    "batch_size": 48,
+    "learning_rate": 0.0005,
+    "weight_decay": 0.0001,
+    "num_epochs": 150,
+    "early_stopping_patience": 25,
+    "max_grad_norm": 1.0,
+    "loss_weights": {
+      "mse": 1.0,
+      "huber": 0.5,
+      "smoothness": 0.1
+    },
+    "teacher_forcing_ratio": 0.5,
+    "seed": 42,
+    "device": "cuda",
+    "reproducibility": {
+      "deterministic_mode": false,
+      "cuda_manual_seed_all": true,
+      "cudnn_benchmark": true,
+      "note": "CUDA-прогоны могут различаться при одинаковом seed; для воспроизводимости используйте --deterministic"
+    },
+    "quick_test": false,
+    "overrides": {
+      "lr": null,
+      "roll_weight": null,
+      "huber_weight": null,
+      "smooth_weight": null,
+      "no_attention": false
+    }
+  },
+  "features": {
+    "profile": "transas_core",
+    "input": [
+      "Swell(метры)",
+      "Wave.Highest(метры)",
+      "Wave.direction(sin)",
+      "Wave.direction(cos)",
+      "Wave.speed(узлы)",
+      "Wind.direction(sin)",
+      "Wind.direction(cos)",
+      "Current.direction(sin)",
+      "Current.direction(cos)",
+      "Current.speed(узлы)",
+      "Rudder Order(градусы)",
+      "Rudder State(градусы)",
+      "RPM(Обороты в минуту)",
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)",
+      "SOG(узлы)",
+      "ROT(°/мин)"
+    ],
+    "targets": [
+      "Roll(градусы)",
+      "Vertical(Метр)",
+      "Velocity.Rolling(°/мин)",
+      "Velocity.Vertical(узлы)"
+    ],
+    "target_weights": {
+      "Roll(градусы)": 2.0,
+      "Vertical(Метр)": 1.5,
+      "Velocity.Rolling(°/мин)": 1.2,
+      "Velocity.Vertical(узлы)": 0.8
+    },
+    "feature_engineering": {
+      "cyclic_encoding": true,
+      "relative_wave_angle": true,
+      "relative_wind_angle": true
+    },
+    "input_dim": 19,
+    "output_dim": 4
+  },
+  "scalers": {},
+  "results": {},
+  "notes": {
+    "failure_reason": "incompatible minimal dataset: transas_core requires Swell/Current columns; superseded by 12k runs from 20261002-123603 onward"
+  }
+}

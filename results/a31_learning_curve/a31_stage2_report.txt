@@ -1,0 +1,68 @@
+========================================================================================
+A3.1 STAGE 2+3 — LEARNING CURVE ACROSS HORIZONS H={10,20,30}, 12k AND 71k
+========================================================================================
+Common transas_core target panel: Roll, Vertical, Vel.Rolling, Vel.Vertical.
+12k (your_data.csv): H=20 stage 1, H=10/30 stage 2, K={2,4,8}.
+71k (real_w5w6w7_merged.csv): H=20 E1T, H=10/30 stage 3, K={2,4,8,16}.
+Question: does the quality(volume) effect persist across horizons and regimes?
+
+--- aggregate table (per dataset x horizon) ---
+DS   H    n_train  seeds  MAE mean±SD       R2 mean±SD       skill mean±SD     MAE/sigma mean±SD
+ 12k  10     1400      3  10.074±1.027   +0.587±0.048   +0.459±0.055   0.521±0.039
+ 12k  10     2800      3  8.343±0.644   +0.677±0.026   +0.552±0.035   0.442±0.035
+ 12k  10     5600      3  6.976±0.292   +0.767±0.021   +0.626±0.016   0.406±0.048
+ 12k  20     1400      3  12.088±1.716   +0.398±0.137   +0.344±0.093   0.607±0.026
+ 12k  20     2800      3  11.196±0.894   +0.371±0.139   +0.392±0.049   0.563±0.025
+ 12k  20     5600      3  10.705±1.477   +0.436±0.149   +0.419±0.080   0.559±0.043
+ 12k  30     1400      3  14.426±1.583   +0.236±0.206   +0.234±0.084   0.671±0.063
+ 12k  30     2800      3  13.040±1.742   +0.166±0.142   +0.307±0.093   0.635±0.081
+ 12k  30     5600      3  12.373±2.095   +0.217±0.294   +0.343±0.111   0.623±0.079
+ 71k  10     1400      3  1.038±0.200   +0.068±0.109   +0.127±0.168   0.610±0.034
+ 71k  10     2800      3  0.800±0.076   +0.176±0.107   +0.327±0.064   0.490±0.069
+ 71k  10     5600      3  0.646±0.029   +0.499±0.108   +0.457±0.024   0.381±0.014
+ 71k  10    11200      3  0.586±0.050   +0.587±0.051   +0.507±0.042   0.343±0.027
+ 71k  20     1400      3  1.110±0.244   -0.071±0.227   +0.092±0.199   0.657±0.064
+ 71k  20     2800      3  0.878±0.053   +0.067±0.081   +0.282±0.043   0.554±0.061
+ 71k  20     5600      3  0.775±0.016   +0.325±0.050   +0.366±0.013   0.473±0.010
+ 71k  20    11200      3  0.740±0.069   +0.269±0.147   +0.395±0.057   0.438±0.034
+ 71k  20    49700      1  0.488±0.000   +0.674±0.000   +0.601±0.000   0.308±0.000
+ 71k  30     1400      3  1.076±0.148   -0.069±0.085   +0.138±0.118   0.655±0.050
+ 71k  30     2800      3  0.885±0.038   +0.042±0.074   +0.291±0.030   0.559±0.046
+ 71k  30     5600      3  0.852±0.007   +0.149±0.061   +0.318±0.006   0.512±0.022
+ 71k  30    11200      3  0.835±0.079   +0.114±0.235   +0.331±0.063   0.482±0.045
+
+--- trend diagnostics per dataset x horizon (aggregate points; exploratory) ---
+12k H=10: 3 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0831, exploratory R2=0.995
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0574, exploratory R2=0.955
+12k H=20: 3 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0375, exploratory R2=0.973
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0237, exploratory R2=0.804
+12k H=30: 3 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0545, exploratory R2=0.961
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0242, exploratory R2=0.924
+71k H=10: 4 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.1269, exploratory R2=0.935
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0911, exploratory R2=0.957
+71k H=20: 5 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0909, exploratory R2=0.948
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0650, exploratory R2=0.974
+71k H=30: 4 aggregate volume points
+  skill: Spearman rho=+1.000; slope per doubling=+0.0605, exploratory R2=0.770
+  MAE/sigma: Spearman rho=-1.000; slope per doubling=-0.0565, exploratory R2=0.933
+
+--- horizon comparison of volume slopes ---
+  12k skill: H=10: +0.0831/doubling; H=20: +0.0375/doubling; H=30: +0.0545/doubling -> sign-consistent: True
+  71k skill: H=10: +0.1269/doubling; H=20: +0.0909/doubling; H=30: +0.0605/doubling -> sign-consistent: True
+  12k MAE/sigma: H=10: -0.0574/doubling; H=20: -0.0237/doubling; H=30: -0.0242/doubling -> sign-consistent: True
+  71k MAE/sigma: H=10: -0.0911/doubling; H=20: -0.0650/doubling; H=30: -0.0565/doubling -> sign-consistent: True
+
+--- interpretation boundary ---
+Описательная статистика: 12k — 3 объёма × 3 сида на горизонт; 71k — 4 объёма × 3 сида.
+Достаточно для проверки направления и знакового согласования наклонов;
+недостаточно для точного сравнения величин наклонов и причинного вывода.
+Единица репликации — seed/выбор train-сегментов, не отдельные строки ряда.
+Абсолютный MAE между датасетами/горизонтами несопоставим напрямую; основные
+межгрупповые показатели — skill vs persistence и MAE/sigma. Test-панели 12k и 71k
+относятся к разным режимам волнения — режимы считать стратификационным фактором.
+========================================================================================
